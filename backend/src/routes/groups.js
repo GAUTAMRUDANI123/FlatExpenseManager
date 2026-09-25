@@ -18,6 +18,13 @@ const {
   requirePassword
 } = require('../middleware/validate');
 const { EXPENSE_SELECT, mapExpense, writeAudit } = require('./expenses');
+const {
+  nextMonthOf,
+  isMonthClosed,
+  assertMonthOpen,
+  writeGroupAudit,
+  carryOverPending
+} = require('../services/closures');
 
 const router = express.Router();
 const MAX_GROUP_MEMBERS = Number(process.env.MAX_GROUP_MEMBERS || 5);
@@ -341,6 +348,8 @@ router.post(
     }
 
     const result = await withTransaction(async (conn) => {
+      await assertMonthOpen(conn, req.group.id, month, 'This contribution');
+
       const [member] = await conn.query(
         `SELECT user_id FROM group_members
           WHERE group_id = ? AND user_id = ? AND status = 'active'`,
@@ -419,6 +428,8 @@ router.post(
     const expected = requireAmount(req.body, 'expectedAmount');
 
     const count = await withTransaction(async (conn) => {
+      await assertMonthOpen(conn, req.group.id, month, 'This contribution');
+
       const [members] = await conn.query(
         `SELECT user_id FROM group_members WHERE group_id = ? AND status = 'active'`,
         [req.group.id]
@@ -461,6 +472,15 @@ router.post(
     const splitTo = req.body.splitTo === undefined ? req.group.adminId : requireId(req.body, 'splitTo');
 
     const created = await withTransaction(async (conn) => {
+      // Backdating into a settled month would change totals everyone has
+      // already agreed, so the period is checked before anything else.
+      await assertMonthOpen(
+        conn,
+        req.group.id,
+        `${expenseDate.slice(0, 7)}-01`,
+        'This expense'
+      );
+
       const [cat] = await conn.query(
         'SELECT id FROM categories WHERE id = ? AND group_id = ? AND is_active = 1',
         [categoryId, req.group.id]
@@ -537,6 +557,23 @@ router.get(
       }
     }
 
+    /**
+     * Free-text search across the fields someone would actually remember:
+     * what it was, which category, and who paid. LIKE is the right tool at
+     * this size — a flat accumulates a few thousand expenses over years, and
+     * a FULLTEXT index would not pay for itself. The term is escaped so that
+     * a literal % or _ in a description does not turn into a wildcard.
+     */
+    if (req.query.q) {
+      const term = String(req.query.q).trim();
+      if (term.length > 0) {
+        const escaped = term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+        const like = `%${escaped}%`;
+        where.push('(e.description LIKE ? OR c.name LIKE ? OR pb.name LIKE ?)');
+        params.push(like, like, like);
+      }
+    }
+
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
 
@@ -546,8 +583,15 @@ router.get(
        LIMIT ? OFFSET ?`,
       [...params, limit, offset]
     );
+    // The same joins as EXPENSE_SELECT, because the search filter reaches into
+    // the category and payer names. Both columns are NOT NULL with foreign
+    // keys, so an inner join here cannot change the count.
     const [countRows] = await pool.query(
-      `SELECT COUNT(*) AS n FROM expenses e WHERE ${where.join(' AND ')}`,
+      `SELECT COUNT(*) AS n
+         FROM expenses e
+         JOIN categories c ON c.id = e.category_id
+         JOIN users pb ON pb.id = e.paid_by
+        WHERE ${where.join(' AND ')}`,
       params
     );
 
@@ -768,6 +812,304 @@ router.get(
       byPaidBy: shape(paidByRows),
       bySplitTo: shape(splitToRows),
       balance: (received - Number(byStatus.approved)).toFixed(2)
+    });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Month closing
+// ---------------------------------------------------------------------------
+
+/** GET /api/groups/:groupId/months — closure state, newest first. */
+router.get(
+  '/:groupId/months',
+  asyncHandler(async (req, res) => {
+    const [rows] = await pool.query(
+      `SELECT c.month, c.closed_at, c.note, u.id AS closed_by_id, u.name AS closed_by_name
+         FROM month_closures c
+         JOIN users u ON u.id = c.closed_by
+        WHERE c.group_id = ?
+        ORDER BY c.month DESC`,
+      [req.group.id]
+    );
+
+    const month = normaliseMonth(req.query.month, currentMonth());
+    res.json({
+      month,
+      isClosed: rows.some((r) => r.month === month),
+      closures: rows.map((r) => ({
+        month: r.month,
+        closedAt: r.closed_at,
+        note: r.note,
+        closedBy: { id: Number(r.closed_by_id), name: r.closed_by_name }
+      }))
+    });
+  })
+);
+
+/**
+ * POST /api/groups/:groupId/months/:month/close  (Admin)
+ *
+ * Expenses still awaiting a decision are moved into the next month rather than
+ * blocking the close, so a closed month holds only settled figures and nothing
+ * is silently rejected for having been missed.
+ */
+router.post(
+  '/:groupId/months/:month/close',
+  requireGroupAdmin,
+  asyncHandler(async (req, res) => {
+    const month = normaliseMonth(req.params.month, null);
+    if (!month) throw new ApiError(400, 'month must be YYYY-MM');
+    const note = optionalString(req.body, 'note', { max: 255 });
+
+    const result = await withTransaction(async (conn) => {
+      if (await isMonthClosed(conn, req.group.id, month)) {
+        throw new ApiError(409, `${month.slice(0, 7)} is already closed`);
+      }
+
+      const carried = await carryOverPending(conn, req.group.id, month, req.user.id);
+
+      await conn.query(
+        'INSERT INTO month_closures (group_id, month, closed_by, note) VALUES (?, ?, ?, ?)',
+        [req.group.id, month, req.user.id, note]
+      );
+
+      await writeGroupAudit(conn, {
+        groupId: req.group.id,
+        action: 'month_closed',
+        detail:
+          carried > 0
+            ? `${month.slice(0, 7)} closed; ${carried} pending expense(s) carried into ${nextMonthOf(month).slice(0, 7)}`
+            : `${month.slice(0, 7)} closed`,
+        actorId: req.user.id
+      });
+
+      return carried;
+    });
+
+    res.json({ ok: true, month, carriedOver: result });
+  })
+);
+
+/** POST /api/groups/:groupId/months/:month/reopen  (Admin) */
+router.post(
+  '/:groupId/months/:month/reopen',
+  requireGroupAdmin,
+  asyncHandler(async (req, res) => {
+    const month = normaliseMonth(req.params.month, null);
+    if (!month) throw new ApiError(400, 'month must be YYYY-MM');
+    const reason = requireString(req.body, 'reason', { max: 255 });
+
+    await withTransaction(async (conn) => {
+      const [result] = await conn.query(
+        'DELETE FROM month_closures WHERE group_id = ? AND month = ?',
+        [req.group.id, month]
+      );
+      if (result.affectedRows === 0) {
+        throw new ApiError(409, `${month.slice(0, 7)} is not closed`);
+      }
+
+      await writeGroupAudit(conn, {
+        groupId: req.group.id,
+        action: 'month_reopened',
+        detail: `${month.slice(0, 7)} reopened: ${reason}`,
+        actorId: req.user.id
+      });
+    });
+
+    res.json({ ok: true, month });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Activity log
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/groups/:groupId/activity
+ *
+ * One feed across both audit tables. expense_audit is expense-scoped and
+ * group_audit records things that happen to the flat itself; the UI wants them
+ * interleaved in time, so they are unioned here rather than in the client.
+ */
+router.get(
+  '/:groupId/activity',
+  asyncHandler(async (req, res) => {
+    const limit = Math.min(Number(req.query.limit) || 100, 200);
+
+    const [rows] = await pool.query(
+      `(SELECT a.created_at, a.action, a.detail,
+               e.id AS expense_id, e.description AS expense_description, e.amount,
+               u.id AS actor_id, u.name AS actor_name
+          FROM expense_audit a
+          JOIN expenses e ON e.id = a.expense_id
+          JOIN users u ON u.id = a.actor_id
+         WHERE e.group_id = ?)
+       UNION ALL
+       (SELECT g.created_at, g.action, g.detail,
+               NULL, NULL, NULL,
+               u.id, u.name
+          FROM group_audit g
+          JOIN users u ON u.id = g.actor_id
+         WHERE g.group_id = ?)
+       ORDER BY created_at DESC
+       LIMIT ?`,
+      [req.group.id, req.group.id, limit]
+    );
+
+    res.json({
+      activity: rows.map((r) => ({
+        action: r.action,
+        detail: r.detail,
+        createdAt: r.created_at,
+        actor: { id: Number(r.actor_id), name: r.actor_name },
+        expense: r.expense_id
+          ? {
+              id: Number(r.expense_id),
+              description: r.expense_description,
+              amount: r.amount
+            }
+          : null
+      }))
+    });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Trend / monthly comparison
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/groups/:groupId/reports/trend?months=6
+ *
+ * Approved spend and contributions received per month, oldest first so the
+ * client can plot it without reversing. Months with no activity are filled in
+ * as zero rather than omitted — a line chart with gaps misreads as a dip.
+ */
+router.get(
+  '/:groupId/reports/trend',
+  asyncHandler(async (req, res) => {
+    const months = Math.min(Math.max(Number(req.query.months) || 6, 2), 24);
+    const end = normaliseMonth(req.query.month, currentMonth());
+
+    // Walk back from the selected month to build the window.
+    const window = [];
+    let [y, m] = end.split('-').map(Number);
+    for (let i = 0; i < months; i += 1) {
+      window.unshift(`${y}-${String(m).padStart(2, '0')}-01`);
+      m -= 1;
+      if (m === 0) {
+        m = 12;
+        y -= 1;
+      }
+    }
+    const first = window[0];
+    const afterLast = nextMonthOf(window[window.length - 1]);
+
+    const [spendRows] = await pool.query(
+      `SELECT DATE_FORMAT(expense_date, '%Y-%m-01') AS month,
+              SUM(amount) AS total, COUNT(*) AS count
+         FROM expenses
+        WHERE group_id = ? AND status = 'approved'
+          AND expense_date >= ? AND expense_date < ?
+        GROUP BY month`,
+      [req.group.id, first, afterLast]
+    );
+
+    const [contribRows] = await pool.query(
+      `SELECT month, SUM(paid_amount) AS total
+         FROM monthly_contributions
+        WHERE group_id = ? AND month >= ? AND month < ?
+        GROUP BY month`,
+      [req.group.id, first, afterLast]
+    );
+
+    const spend = new Map(spendRows.map((r) => [String(r.month), r]));
+    const contrib = new Map(contribRows.map((r) => [String(r.month), r]));
+
+    res.json({
+      months: window.map((month) => {
+        const s = spend.get(month);
+        const c = contrib.get(month);
+        return {
+          month: month.slice(0, 7),
+          spent: s ? Number(s.total).toFixed(2) : '0.00',
+          count: s ? Number(s.count) : 0,
+          received: c ? Number(c.total).toFixed(2) : '0.00'
+        };
+      })
+    });
+  })
+);
+
+// ---------------------------------------------------------------------------
+// Settlement
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/groups/:groupId/settlement
+ *
+ * Where each member stands for the month: what they owe, what they have paid
+ * in, and what they have laid out of their own pocket on approved expenses.
+ *
+ * `net` is (paid in + spent on the flat's behalf) - expected. Positive means
+ * the flat owes them, negative means they owe the flat. Spending is counted
+ * only when approved, for the same reason the balance excludes pending
+ * expenses: an unapproved claim is not yet a debt.
+ */
+router.get(
+  '/:groupId/settlement',
+  asyncHandler(async (req, res) => {
+    const month = normaliseMonth(req.query.month, currentMonth());
+    const end = nextMonthOf(month);
+
+    const [rows] = await pool.query(
+      `SELECT u.id, u.name,
+              COALESCE(mc.expected_amount, 0) AS expected,
+              COALESCE(mc.paid_amount, 0)     AS paid,
+              COALESCE((
+                SELECT SUM(e.amount) FROM expenses e
+                 WHERE e.group_id = gm.group_id AND e.paid_by = u.id
+                   AND e.status = 'approved'
+                   AND e.expense_date >= ? AND e.expense_date < ?
+              ), 0) AS spent
+         FROM group_members gm
+         JOIN users u ON u.id = gm.user_id
+         LEFT JOIN monthly_contributions mc
+                ON mc.group_id = gm.group_id AND mc.user_id = u.id AND mc.month = ?
+        WHERE gm.group_id = ? AND gm.status = 'active'
+        ORDER BY u.name`,
+      [month, end, month, req.group.id]
+    );
+
+    const members = rows.map((r) => {
+      const expected = Number(r.expected);
+      const paid = Number(r.paid);
+      const spent = Number(r.spent);
+      return {
+        userId: Number(r.id),
+        name: r.name,
+        isAdmin: Number(r.id) === req.group.adminId,
+        expected: expected.toFixed(2),
+        paid: paid.toFixed(2),
+        outstanding: Math.max(expected - paid, 0).toFixed(2),
+        spent: spent.toFixed(2),
+        net: (paid + spent - expected).toFixed(2)
+      };
+    });
+
+    const sum = (key) => members.reduce((t, x) => t + Number(x[key]), 0).toFixed(2);
+
+    res.json({
+      month: month.slice(0, 7),
+      isClosed: await isMonthClosed(pool, req.group.id, month),
+      members,
+      totals: {
+        expected: sum('expected'),
+        paid: sum('paid'),
+        outstanding: sum('outstanding'),
+        spent: sum('spent')
+      }
     });
   })
 );

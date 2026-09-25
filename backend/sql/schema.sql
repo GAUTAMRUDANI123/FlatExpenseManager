@@ -139,6 +139,47 @@ CREATE TABLE IF NOT EXISTS expense_receipts (
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------------
+-- month_closures — a closed month is read-only: its expenses and its
+-- contributions are settled and cannot be changed while the row exists.
+--
+-- Closing is reversible. The Admin reopens the month, makes the correction and
+-- closes it again, and every one of those steps is audited, so the history
+-- shows plainly when a sealed month was touched and by whom.
+--
+-- `month` is the first day of that month, matching monthly_contributions.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS month_closures (
+  id         BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  group_id   BIGINT UNSIGNED NOT NULL,
+  month      DATE NOT NULL,
+  closed_by  BIGINT UNSIGNED NOT NULL,
+  closed_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  note       VARCHAR(255) NULL,
+  UNIQUE KEY uq_closure (group_id, month),
+  CONSTRAINT fk_mcl_group FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
+  CONSTRAINT fk_mcl_user  FOREIGN KEY (closed_by) REFERENCES users(id)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------------
+-- group_audit — the flat-level counterpart to expense_audit: month closures,
+-- admin transfers, membership changes. expense_audit stays expense-scoped
+-- because it hangs off expense_id; this table records things that happen to
+-- the group itself.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS group_audit (
+  id          BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  group_id    BIGINT UNSIGNED NOT NULL,
+  action      VARCHAR(40) NOT NULL,
+  detail      TEXT NULL,
+  subject_id  BIGINT UNSIGNED NULL,
+  actor_id    BIGINT UNSIGNED NOT NULL,
+  created_at  TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_gaud_group FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE,
+  CONSTRAINT fk_gaud_user  FOREIGN KEY (actor_id) REFERENCES users(id),
+  INDEX idx_gaud_group (group_id, created_at)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------------
 -- expense_audit — section 15 forbids silently editing an approved expense.
 -- Every status change and every edit lands here.
 -- ---------------------------------------------------------------------------

@@ -12,6 +12,7 @@ const {
   optionalDate,
   todayIso
 } = require('../middleware/validate');
+const { assertMonthOpen, monthOfDate } = require('../services/closures');
 
 const router = express.Router();
 
@@ -146,6 +147,20 @@ router.patch(
         throw new ApiError(409, 'A cancelled expense cannot be edited');
       }
 
+      // Both the month it sits in now and any month it is being moved to must
+      // be open — otherwise an edit could either alter a settled month's
+      // totals or push a figure into one.
+      await assertMonthOpen(
+        conn,
+        expense.group_id,
+        monthOfDate(expense.expense_date),
+        'This expense'
+      );
+      if (req.body.expenseDate !== undefined) {
+        const moved = optionalDate(req.body, 'expenseDate', expense.expense_date);
+        await assertMonthOpen(conn, expense.group_id, monthOfDate(moved), 'That date');
+      }
+
       const fields = {};
       if (req.body.categoryId !== undefined) {
         const categoryId = requireId(req.body, 'categoryId');
@@ -234,6 +249,16 @@ function decisionRoute(action, { from, to, requiresReason = false }) {
       const { expense, isAdmin } = await loadExpenseContext(conn, expenseId, req.user.id);
 
       if (!isAdmin) throw new ApiError(403, 'Only the group Admin can do this');
+
+      // Approving or rejecting moves money into or out of the month's
+      // approved total, so a settled month has to be reopened first.
+      await assertMonthOpen(
+        conn,
+        expense.group_id,
+        monthOfDate(expense.expense_date),
+        'This expense'
+      );
+
       if (!from.includes(expense.status)) {
         throw new ApiError(
           409,
