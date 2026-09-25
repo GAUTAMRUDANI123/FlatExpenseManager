@@ -67,6 +67,10 @@ that counts money nobody has transferred yet is a forecast, not a balance.
 
 ## Running it
 
+To actually put this in front of five flatmates rather than just start it
+locally, see **[SETUP.md](SETUP.md)** — one laptop, an HTTPS tunnel, and the
+backup arrangement that stops a dead disk taking the whole ledger with it.
+
 ### 1. Database
 
 Requires MySQL 8. Create the schema:

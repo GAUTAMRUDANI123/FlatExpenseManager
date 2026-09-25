@@ -27,3 +27,7 @@ captures/
 *.log
 Thumbs.db
 .DS_Store
+
+# --- Database dumps ---------------------------------------------------------
+# Real data: member emails and bcrypt password hashes. Never commit these.
+backend/backups/
