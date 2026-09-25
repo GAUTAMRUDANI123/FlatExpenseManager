@@ -32,11 +32,14 @@ can be added later against the same endpoints.
 | 9 — dashboard | `/dashboard`, [DashboardScreen.kt](android/app/src/main/java/com/flatexpense/ui/screens/DashboardScreen.kt) |
 | 10 — monthly reports | `/reports/monthly`, Reports screen |
 | 11 — Pending / Approved / Rejected / Cancelled | `expenses.status` enum |
-| 12 — main screens | 11 screens in [ui/screens/](android/app/src/main/java/com/flatexpense/ui/screens/) |
+| 12 — main screens | 15 screens in [ui/screens/](android/app/src/main/java/com/flatexpense/ui/screens/) |
 | 13 — database design | [schema.sql](backend/sql/schema.sql) |
 | 14 — API endpoints | all of Table 6, plus admin transfer and bulk contribution |
 | 15 — validation rules | [validate.js](backend/src/middleware/validate.js) + per-route checks |
 | 16 — security | JWT, bcrypt hashes, group-scoped authorization, audit trail |
+
+Beyond the spec: analytics with charts, a settlement page, a flat-wide activity
+log, global search, and month closing.
 
 Not built, because the spec lists them as future work (section 18): receipt
 upload (the table exists, no endpoint), recurring expenses, notifications,
@@ -60,6 +63,26 @@ approver, and writes an `edited_reopened` row to `expense_audit`.
 **Foreign expenses 404 rather than 403.** A 403 would confirm that someone
 else's expense id is real. Membership is checked in the same query that loads
 the row.
+
+**A closed month is read-only.** `month_closures` holds the lock, and one guard
+(`assertMonthOpen`) sits in front of expense creation, edits, every decision
+route and both contribution routes — so last month's agreed totals cannot drift
+once everyone has signed off. Closing is reversible: the Admin reopens,
+corrects, and closes again, and both halves are written to `group_audit`.
+Expenses still undecided when a month closes are carried into the next month
+rather than being auto-rejected, and the original date is kept in
+`expense_audit` so moving it loses nothing.
+
+**Charts pin their own colours.** The app uses dynamic colour, so on Android 12+
+the theme comes from the user's wallpaper. Charts therefore fix both the series
+colours and the surface they are drawn on — otherwise contrast and
+colour-blind separation would depend on somebody's home screen. The palette is
+validated in both light and dark; the figures are in
+[Charts.kt](android/app/src/main/java/com/flatexpense/ui/common/Charts.kt).
+
+**Category spending is bars, not a pie.** The question is which categories cost
+most, and length is read far more accurately than angle — especially across
+twelve categories, where slice colours stop being distinguishable at all.
 
 **The recorded balance is cash on hand.** It is contributions *received* minus
 *approved* expenses. Unpaid contributions are deliberately excluded — a balance
