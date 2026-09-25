@@ -44,14 +44,25 @@ import java.util.TimeZone
 /**
  * Section 5 / Table 3. Every field the spec marks required is required here,
  * and Split To opens pre-selected on the Admin — the rule the doc repeats most.
+ *
+ * Doubles as the edit screen: pass `expenseId` and the same form opens
+ * pre-filled and saves with PATCH instead of POST. The fields, the validation
+ * and the Split To explanation are identical either way, so they are not
+ * duplicated into a second screen.
  */
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
-fun AddExpenseScreen(viewModel: AppViewModel, onDone: () -> Unit) {
+fun AddExpenseScreen(
+    viewModel: AppViewModel,
+    expenseId: Long? = null,
+    onDone: () -> Unit
+) {
     val categoriesState by viewModel.categories.collectAsStateWithLifecycle()
     val membersState by viewModel.members.collectAsStateWithLifecycle()
+    val detailState by viewModel.detail.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
 
+    val isEditing = expenseId != null
     val categories = categoriesState.data.orEmpty()
     val members = membersState.data.orEmpty().filter { it.status == "active" }
 
@@ -62,10 +73,32 @@ fun AddExpenseScreen(viewModel: AppViewModel, onDone: () -> Unit) {
     var splitTo by remember { mutableStateOf<Long?>(null) }
     var expenseDate by remember { mutableStateOf(todayIso()) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var prefilled by remember(expenseId) { mutableStateOf(false) }
+
+    if (expenseId != null) {
+        LaunchedEffect(expenseId) { viewModel.loadDetail(expenseId) }
+    }
+
+    // Edit mode fills from the loaded expense, exactly once, so that typing is
+    // not overwritten when the detail flow re-emits.
+    val loaded = detailState.data?.expense?.takeIf { it.id == expenseId }
+    LaunchedEffect(loaded?.id) {
+        if (loaded != null && !prefilled) {
+            categoryId = loaded.categoryId
+            description = loaded.description
+            amountText = loaded.amount
+            paidBy = loaded.paidBy.id
+            splitTo = loaded.splitTo.id
+            expenseDate = loaded.expenseDate
+            prefilled = true
+        }
+    }
 
     // Defaults land once the lists arrive: Paid By is me (I am usually the one
-    // adding what I just paid for), Split To is the Admin.
-    LaunchedEffect(categories, members, session.userId) {
+    // adding what I just paid for), Split To is the Admin. Edit mode takes its
+    // values from the expense instead.
+    LaunchedEffect(categories, members, session.userId, isEditing) {
+        if (isEditing) return@LaunchedEffect
         if (categoryId == null) categoryId = categories.firstOrNull()?.id
         if (paidBy == null && session.userId > 0) paidBy = session.userId
         if (splitTo == null) splitTo = members.firstOrNull { it.isAdmin }?.id
@@ -79,6 +112,9 @@ fun AddExpenseScreen(viewModel: AppViewModel, onDone: () -> Unit) {
         categoriesState.loading && categories.isEmpty() -> LoadingBox()
         categoriesState.error != null && categories.isEmpty() ->
             ErrorBox(categoriesState.error!!, onRetry = { viewModel.loadCategories() })
+        isEditing && !prefilled && detailState.error != null ->
+            ErrorBox(detailState.error!!, onRetry = { viewModel.loadDetail(expenseId!!) })
+        isEditing && !prefilled -> LoadingBox()
         else -> Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -161,16 +197,29 @@ fun AddExpenseScreen(viewModel: AppViewModel, onDone: () -> Unit) {
                 Text("Date: " + formatDate(expenseDate))
             }
 
+            val reopensOnSave = isEditing &&
+                (loaded?.status == "approved" || loaded?.status == "rejected")
+
             Card(modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(14.dp)) {
                     Text(
-                        text = "Submitted expenses start as Pending",
+                        text = when {
+                            reopensOnSave -> "Saving will return this to Pending"
+                            isEditing -> "This expense is awaiting approval"
+                            else -> "Submitted expenses start as Pending"
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = FontWeight.Medium
                     )
                     Text(
-                        text = "The Admin reviews and approves or rejects it. Only approved " +
-                            "expenses count towards monthly totals.",
+                        text = if (reopensOnSave) {
+                            "A decided expense cannot be changed silently, so editing it " +
+                                "clears the decision and sends it back to the Admin for " +
+                                "re-approval. The change is recorded in its history."
+                        } else {
+                            "The Admin reviews and approves or rejects it. Only approved " +
+                                "expenses count towards monthly totals."
+                        },
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -181,20 +230,39 @@ fun AddExpenseScreen(viewModel: AppViewModel, onDone: () -> Unit) {
 
             Button(
                 onClick = {
-                    viewModel.addExpense(
-                        categoryId = categoryId!!,
-                        description = description,
-                        amount = amountCents!!,
-                        paidBy = paidBy!!,
-                        splitTo = splitTo!!,
-                        expenseDate = expenseDate,
-                        onDone = onDone
-                    )
+                    if (isEditing) {
+                        viewModel.editExpense(
+                            expenseId = expenseId!!,
+                            categoryId = categoryId!!,
+                            description = description,
+                            amount = amountCents!!,
+                            paidBy = paidBy!!,
+                            splitTo = splitTo!!,
+                            expenseDate = expenseDate,
+                            onDone = onDone
+                        )
+                    } else {
+                        viewModel.addExpense(
+                            categoryId = categoryId!!,
+                            description = description,
+                            amount = amountCents!!,
+                            paidBy = paidBy!!,
+                            splitTo = splitTo!!,
+                            expenseDate = expenseDate,
+                            onDone = onDone
+                        )
+                    }
                 },
                 enabled = canSubmit,
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Text("Submit for approval")
+                Text(
+                    when {
+                        reopensOnSave -> "Save and resubmit"
+                        isEditing -> "Save changes"
+                        else -> "Submit for approval"
+                    }
+                )
             }
 
             Spacer(Modifier.height(24.dp))

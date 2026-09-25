@@ -7,6 +7,7 @@ import com.flatexpense.data.Repository
 import com.flatexpense.data.Session
 import com.flatexpense.data.api.BulkExpectedRequest
 import com.flatexpense.data.api.CategoryDto
+import com.flatexpense.data.api.ChangePasswordRequest
 import com.flatexpense.data.api.ContributionsResponse
 import com.flatexpense.data.api.CreateCategoryRequest
 import com.flatexpense.data.api.CreateExpenseRequest
@@ -20,7 +21,10 @@ import com.flatexpense.data.api.MemberDto
 import com.flatexpense.data.api.MonthlyReportResponse
 import com.flatexpense.data.api.RecordContributionRequest
 import com.flatexpense.data.api.RegisterRequest
+import com.flatexpense.data.api.TransferAdminRequest
 import com.flatexpense.data.api.UpdateCategoryRequest
+import com.flatexpense.data.api.UpdateExpenseRequest
+import com.flatexpense.data.api.UpdateMemberRequest
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -367,6 +371,63 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Section 15 forbids silently editing a decided expense. The server sends
+     * back `reopened` when it has reset an approved or rejected expense to
+     * Pending, and the message says so rather than leaving the user to find out
+     * from the status chip.
+     */
+    fun editExpense(
+        expenseId: Long,
+        categoryId: Long,
+        description: String,
+        amount: String,
+        paidBy: Long,
+        splitTo: Long,
+        expenseDate: String,
+        onDone: () -> Unit
+    ) {
+        viewModelScope.launch {
+            repo.call {
+                it.updateExpense(
+                    expenseId,
+                    UpdateExpenseRequest(
+                        categoryId = categoryId,
+                        description = description.trim(),
+                        amount = amount,
+                        paidBy = paidBy,
+                        splitTo = splitTo,
+                        expenseDate = expenseDate
+                    )
+                )
+            }.fold(
+                onSuccess = { result ->
+                    notify(
+                        if (result.reopened) "Saved — back to Pending for re-approval"
+                        else "Changes saved"
+                    )
+                    loadDetail(expenseId)
+                    refreshAll()
+                    onDone()
+                },
+                onFailure = { notify(it.message ?: "Could not save the changes") }
+            )
+        }
+    }
+
+    fun cancelExpense(expenseId: Long, reason: String) {
+        viewModelScope.launch {
+            repo.call { it.cancel(expenseId, DecisionRequest(reason.trim())) }.fold(
+                onSuccess = {
+                    notify("Expense cancelled")
+                    loadDetail(expenseId)
+                    refreshAll()
+                },
+                onFailure = { notify(it.message ?: "Could not cancel") }
+            )
+        }
+    }
+
     fun approve(expenseId: Long) {
         viewModelScope.launch {
             repo.call { it.approve(expenseId) }.fold(
@@ -472,6 +533,66 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     onDone()
                 },
                 onFailure = { notify(it.message ?: "Could not add the member") }
+            )
+        }
+    }
+
+    /**
+     * Deactivating frees one of the five slots. The server refuses to
+     * deactivate the Admin, so that case surfaces as its own message rather
+     * than being hidden by disabling the control.
+     */
+    fun setMemberActive(userId: Long, active: Boolean) {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            repo.call {
+                it.updateMember(id, userId, UpdateMemberRequest(if (active) "active" else "inactive"))
+            }.fold(
+                onSuccess = {
+                    notify(if (active) "Member reactivated" else "Member deactivated")
+                    loadMembers()
+                    refreshAll()
+                },
+                onFailure = { notify(it.message ?: "Could not update the member") }
+            )
+        }
+    }
+
+    /**
+     * Hands the Admin role to someone else. This revokes the caller's own
+     * rights, so the stored isAdmin flag is re-read from the server instead of
+     * being assumed — otherwise the UI would keep showing Admin controls that
+     * every request now rejects.
+     */
+    fun transferAdmin(userId: Long, onDone: () -> Unit) {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            repo.call { it.transferAdmin(id, TransferAdminRequest(userId)) }.fold(
+                onSuccess = {
+                    repo.call { api -> api.me() }.onSuccess { me ->
+                        val mine = me.groups.firstOrNull { group -> group.id == id }
+                        if (mine != null) repo.sessionStore.setIsAdmin(mine.isAdmin)
+                    }
+                    notify("Admin transferred")
+                    loadMembers()
+                    refreshAll()
+                    onDone()
+                },
+                onFailure = { notify(it.message ?: "Could not transfer admin") }
+            )
+        }
+    }
+
+    fun changePassword(currentPassword: String, newPassword: String, onDone: () -> Unit) {
+        viewModelScope.launch {
+            repo.call {
+                it.changePassword(ChangePasswordRequest(currentPassword, newPassword))
+            }.fold(
+                onSuccess = {
+                    notify("Password changed")
+                    onDone()
+                },
+                onFailure = { notify(it.message ?: "Could not change the password") }
             )
         }
     }

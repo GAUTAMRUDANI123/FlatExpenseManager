@@ -305,3 +305,37 @@ data class ApiErrorDetail(
 /** Generic acknowledgement; extra fields are ignored by the JSON config. */
 @Serializable
 data class OkResponse(val ok: Boolean = true)
+
+/**
+ * Every field is optional: the PATCH endpoint only touches what it is sent, and
+ * `explicitNulls = false` drops the untouched ones from the JSON body rather
+ * than sending nulls the server would read as "clear this".
+ */
+@Serializable
+data class UpdateExpenseRequest(
+    val categoryId: Long? = null,
+    val description: String? = null,
+    val amount: String? = null,
+    val paidBy: Long? = null,
+    val splitTo: Long? = null,
+    val expenseDate: String? = null
+)
+
+/** `reopened` is true when the edit sent an approved/rejected expense back to Pending. */
+@Serializable
+data class UpdateExpenseResponse(
+    val expense: ExpenseDto,
+    val reopened: Boolean = false
+)
+
+@Serializable
+data class ChangePasswordRequest(
+    val currentPassword: String,
+    val newPassword: String
+)
+
+@Serializable
+data class TransferAdminRequest(val userId: Long)
+
+@Serializable
+data class UpdateMemberRequest(val status: String)

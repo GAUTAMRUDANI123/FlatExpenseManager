@@ -18,6 +18,9 @@ interface ApiService {
     @GET("api/auth/me")
     suspend fun me(): MeResponse
 
+    @POST("api/auth/change-password")
+    suspend fun changePassword(@Body body: ChangePasswordRequest): OkResponse
+
     @GET("api/groups/{groupId}/dashboard")
     suspend fun dashboard(
         @Path("groupId") groupId: Long,
@@ -32,6 +35,20 @@ interface ApiService {
         @Path("groupId") groupId: Long,
         @Body body: CreateMemberRequest
     ): Map<String, MemberDto>
+
+    /** Deactivating frees a slot against the five-member cap; the Admin cannot be deactivated. */
+    @PATCH("api/groups/{groupId}/members/{userId}")
+    suspend fun updateMember(
+        @Path("groupId") groupId: Long,
+        @Path("userId") userId: Long,
+        @Body body: UpdateMemberRequest
+    ): OkResponse
+
+    @POST("api/groups/{groupId}/transfer-admin")
+    suspend fun transferAdmin(
+        @Path("groupId") groupId: Long,
+        @Body body: TransferAdminRequest
+    ): OkResponse
 
     @GET("api/groups/{groupId}/categories")
     suspend fun categories(
@@ -70,11 +87,28 @@ interface ApiService {
     @GET("api/expenses/{expenseId}")
     suspend fun expenseDetail(@Path("expenseId") expenseId: Long): ExpenseDetailResponse
 
+    /**
+     * Editing an approved or rejected expense sends it back to Pending — the
+     * response's `reopened` flag says whether that happened.
+     */
+    @PATCH("api/expenses/{expenseId}")
+    suspend fun updateExpense(
+        @Path("expenseId") expenseId: Long,
+        @Body body: UpdateExpenseRequest
+    ): UpdateExpenseResponse
+
     @POST("api/expenses/{expenseId}/approve")
     suspend fun approve(@Path("expenseId") expenseId: Long): ExpenseWrapper
 
     @POST("api/expenses/{expenseId}/reject")
     suspend fun reject(
+        @Path("expenseId") expenseId: Long,
+        @Body body: DecisionRequest
+    ): ExpenseWrapper
+
+    /** Table 4's optional status: withdraws an expense that is Pending or already Approved. */
+    @POST("api/expenses/{expenseId}/cancel")
+    suspend fun cancel(
         @Path("expenseId") expenseId: Long,
         @Body body: DecisionRequest
     ): ExpenseWrapper

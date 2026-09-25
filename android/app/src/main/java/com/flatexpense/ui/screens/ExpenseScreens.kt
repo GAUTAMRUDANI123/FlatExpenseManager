@@ -191,11 +191,17 @@ fun PendingApprovalsScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Uni
 // ---------------------------------------------------------------------------
 
 @Composable
-fun ExpenseDetailScreen(viewModel: AppViewModel, expenseId: Long) {
+fun ExpenseDetailScreen(
+    viewModel: AppViewModel,
+    expenseId: Long,
+    onEdit: (Long) -> Unit = {}
+) {
     val state by viewModel.detail.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     var rejecting by remember { mutableStateOf(false) }
+    var cancelling by remember { mutableStateOf(false) }
     var reason by remember { mutableStateOf("") }
+    var cancelReason by remember { mutableStateOf("") }
 
     LaunchedEffect(expenseId) { viewModel.loadDetail(expenseId) }
 
@@ -281,6 +287,32 @@ fun ExpenseDetailScreen(viewModel: AppViewModel, expenseId: Long) {
                     }
                 }
 
+                // The server allows the author or the Admin to edit anything
+                // that is not already cancelled, and lets only the Admin cancel
+                // something still Pending or Approved. Mirrored here so the
+                // buttons are absent rather than failing when pressed.
+                val mine = expense.createdBy.id == session.userId
+                val canEdit = (mine || session.isAdmin) && expense.status != "cancelled"
+                val canCancel = session.isAdmin &&
+                    (expense.status == "pending" || expense.status == "approved")
+
+                if (canEdit || canCancel) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        if (canEdit) {
+                            OutlinedButton(
+                                onClick = { onEdit(expense.id) },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Edit") }
+                        }
+                        if (canCancel) {
+                            OutlinedButton(
+                                onClick = { cancelling = true },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Cancel expense") }
+                        }
+                    }
+                }
+
                 if (detail.audit.isNotEmpty()) {
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(18.dp)) {
@@ -347,6 +379,43 @@ fun ExpenseDetailScreen(viewModel: AppViewModel, expenseId: Long) {
             },
             dismissButton = {
                 TextButton(onClick = { rejecting = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (cancelling) {
+        AlertDialog(
+            onDismissRequest = { cancelling = false },
+            title = { Text("Cancel this expense") },
+            text = {
+                Column {
+                    Text(
+                        text = "Cancelling withdraws the expense and removes it from " +
+                            "approved totals. It stays in history and cannot be edited " +
+                            "afterwards. A reason is required.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = cancelReason,
+                        onValueChange = { cancelReason = it },
+                        label = { Text("Reason") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.cancelExpense(expenseId, cancelReason)
+                        cancelling = false
+                        cancelReason = ""
+                    },
+                    enabled = cancelReason.isNotBlank()
+                ) { Text("Cancel expense") }
+            },
+            dismissButton = {
+                TextButton(onClick = { cancelling = false }) { Text("Keep it") }
             }
         )
     }

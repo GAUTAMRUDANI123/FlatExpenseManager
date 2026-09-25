@@ -74,6 +74,16 @@ class SessionStore(private val context: Context) {
         }
     }
 
+    /**
+     * Admin-ness is a property of the group, not a fixed fact about the user —
+     * it moves when the Admin transfers the role. Transferring it away revokes
+     * your own rights, so the flag is re-read from /auth/me rather than left at
+     * whatever it was at sign-in.
+     */
+    suspend fun setIsAdmin(value: Boolean) {
+        context.dataStore.edit { it[Keys.IS_ADMIN] = value }
+    }
+
     suspend fun setApiBase(value: String) {
         val normalised = value.trim().let { if (it.endsWith("/")) it else "$it/" }
         context.dataStore.edit { it[Keys.API_BASE] = normalised }

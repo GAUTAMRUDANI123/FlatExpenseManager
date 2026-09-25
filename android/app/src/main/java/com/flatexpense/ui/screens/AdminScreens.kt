@@ -1,6 +1,7 @@
 package com.flatexpense.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,10 +14,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -36,6 +43,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.flatexpense.data.api.MemberDto
 import com.flatexpense.ui.common.EmptyBox
 import com.flatexpense.ui.common.ErrorBox
 import com.flatexpense.ui.common.LoadingBox
@@ -436,6 +444,7 @@ fun MembersScreen(viewModel: AppViewModel) {
     var name by remember { mutableStateOf("") }
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
+    var promoting by remember { mutableStateOf<MemberDto?>(null) }
 
     LaunchedEffect(Unit) { viewModel.loadMembers() }
 
@@ -464,6 +473,9 @@ fun MembersScreen(viewModel: AppViewModel) {
                 ErrorBox(state.error!!, onRetry = viewModel::loadMembers)
             else -> LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp)) {
                 items(members, key = { it.id }) { member ->
+                    val inactive = member.status != "active"
+                    var menuOpen by remember(member.id) { mutableStateOf(false) }
+
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -474,7 +486,9 @@ fun MembersScreen(viewModel: AppViewModel) {
                             Text(
                                 text = member.name,
                                 style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.Medium,
+                                color = if (inactive) MaterialTheme.colorScheme.onSurfaceVariant
+                                else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = member.email,
@@ -485,6 +499,47 @@ fun MembersScreen(viewModel: AppViewModel) {
                         if (member.isAdmin) {
                             Spacer(Modifier.width(8.dp))
                             StatusChip("Admin")
+                        }
+                        if (inactive) {
+                            Spacer(Modifier.width(8.dp))
+                            StatusChip("Inactive")
+                        }
+
+                        // The Admin cannot act on their own row: the server
+                        // refuses to deactivate the Admin or transfer the role
+                        // to whoever already holds it.
+                        if (session.isAdmin && !member.isAdmin) {
+                            Box {
+                                IconButton(onClick = { menuOpen = true }) {
+                                    Icon(
+                                        Icons.Filled.MoreVert,
+                                        contentDescription = "Actions for ${member.name}"
+                                    )
+                                }
+                                DropdownMenu(
+                                    expanded = menuOpen,
+                                    onDismissRequest = { menuOpen = false }
+                                ) {
+                                    if (!inactive) {
+                                        DropdownMenuItem(
+                                            text = { Text("Make Admin") },
+                                            onClick = {
+                                                menuOpen = false
+                                                promoting = member
+                                            }
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = {
+                                            Text(if (inactive) "Reactivate" else "Deactivate")
+                                        },
+                                        onClick = {
+                                            menuOpen = false
+                                            viewModel.setMemberActive(member.id, inactive)
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -546,6 +601,30 @@ fun MembersScreen(viewModel: AppViewModel) {
             dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } }
         )
     }
+
+    promoting?.let { target ->
+        AlertDialog(
+            onDismissRequest = { promoting = null },
+            title = { Text("Make ${target.name} the Admin?") },
+            text = {
+                Text(
+                    text = "There is only ever one Admin. ${target.name} will take over " +
+                        "approving expenses and recording contributions, and you will " +
+                        "become an ordinary member — you will not be able to undo this " +
+                        "yourself.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.transferAdmin(target.id) { promoting = null }
+                }) { Text("Transfer") }
+            },
+            dismissButton = {
+                TextButton(onClick = { promoting = null }) { Text("Cancel") }
+            }
+        )
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -556,6 +635,14 @@ fun MembersScreen(viewModel: AppViewModel) {
 fun ProfileScreen(viewModel: AppViewModel) {
     val session by viewModel.session.collectAsStateWithLifecycle()
     var apiBase by remember(session.apiBase) { mutableStateOf(session.apiBase) }
+    var changingPassword by remember { mutableStateOf(false) }
+    var currentPassword by remember { mutableStateOf("") }
+    var newPassword by remember { mutableStateOf("") }
+    var confirmPassword by remember { mutableStateOf("") }
+
+    fun clearPasswordFields() {
+        currentPassword = ""; newPassword = ""; confirmPassword = ""
+    }
 
     Column(
         modifier = Modifier
@@ -608,9 +695,100 @@ fun ProfileScreen(viewModel: AppViewModel) {
             }
         }
 
+        Card(modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(18.dp)) {
+                Text(
+                    text = "Security",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    text = "Change the password you sign in with. If the Admin created " +
+                        "your account, replace the temporary password they gave you.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(10.dp))
+                OutlinedButton(
+                    onClick = { changingPassword = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text("Change password") }
+            }
+        }
+
         Button(
             onClick = viewModel::signOut,
             modifier = Modifier.fillMaxWidth()
         ) { Text("Sign out") }
+    }
+
+    if (changingPassword) {
+        val tooShort = newPassword.isNotEmpty() && newPassword.length < 8
+        val mismatch = confirmPassword.isNotEmpty() && confirmPassword != newPassword
+        val canSubmit = currentPassword.isNotBlank() &&
+            newPassword.length >= 8 &&
+            confirmPassword == newPassword
+
+        AlertDialog(
+            onDismissRequest = {
+                changingPassword = false
+                clearPasswordFields()
+            },
+            title = { Text("Change password") },
+            text = {
+                Column {
+                    OutlinedTextField(
+                        value = currentPassword,
+                        onValueChange = { currentPassword = it },
+                        label = { Text("Current password") },
+                        singleLine = true,
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = newPassword,
+                        onValueChange = { newPassword = it },
+                        label = { Text("New password") },
+                        singleLine = true,
+                        isError = tooShort,
+                        visualTransformation = PasswordVisualTransformation(),
+                        supportingText = { Text("At least 8 characters") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = confirmPassword,
+                        onValueChange = { confirmPassword = it },
+                        label = { Text("Confirm new password") },
+                        singleLine = true,
+                        isError = mismatch,
+                        visualTransformation = PasswordVisualTransformation(),
+                        supportingText = {
+                            if (mismatch) Text("The two passwords do not match")
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.changePassword(currentPassword, newPassword) {
+                            changingPassword = false
+                            clearPasswordFields()
+                        }
+                    },
+                    enabled = canSubmit
+                ) { Text("Change") }
+            },
+            dismissButton = {
+                TextButton(onClick = {
+                    changingPassword = false
+                    clearPasswordFields()
+                }) { Text("Cancel") }
+            }
+        )
     }
 }

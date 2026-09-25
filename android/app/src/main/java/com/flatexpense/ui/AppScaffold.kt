@@ -110,6 +110,7 @@ fun AppScaffold(viewModel: AppViewModel) {
         currentRoute == "contributions" -> "Monthly contributions"
         currentRoute == "more" -> "More"
         currentRoute == "add" -> "Add expense"
+        currentRoute?.startsWith("edit/") == true -> "Edit expense"
         currentRoute == "reports" -> "Monthly report"
         currentRoute == "categories" -> "Categories"
         currentRoute == "members" -> "Members"
@@ -195,13 +196,25 @@ fun AppScaffold(viewModel: AppViewModel) {
                 composable("add") {
                     AddExpenseScreen(viewModel) { navController.popBackStack() }
                 }
+                composable("edit/{expenseId}") { entry ->
+                    val id = entry.arguments?.getString("expenseId")?.toLongOrNull()
+                    if (id != null) {
+                        AddExpenseScreen(viewModel, expenseId = id) {
+                            navController.popBackStack()
+                        }
+                    }
+                }
                 composable("reports") { ReportsScreen(viewModel) }
                 composable("categories") { CategoriesScreen(viewModel) }
                 composable("members") { MembersScreen(viewModel) }
                 composable("profile") { ProfileScreen(viewModel) }
                 composable("expense/{expenseId}") { entry ->
                     val id = entry.arguments?.getString("expenseId")?.toLongOrNull()
-                    if (id != null) ExpenseDetailScreen(viewModel, id)
+                    if (id != null) {
+                        ExpenseDetailScreen(viewModel, id) { editId ->
+                            navController.navigate("edit/$editId")
+                        }
+                    }
                 }
             }
         }
