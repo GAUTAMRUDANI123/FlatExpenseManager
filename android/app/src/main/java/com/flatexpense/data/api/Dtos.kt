@@ -339,3 +339,108 @@ data class TransferAdminRequest(val userId: Long)
 
 @Serializable
 data class UpdateMemberRequest(val status: String)
+
+// ---------------------------------------------------------------------------
+// Month closing
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class ClosureDto(
+    val month: String,
+    val closedAt: String? = null,
+    val note: String? = null,
+    val closedBy: PersonRef
+)
+
+@Serializable
+data class MonthsResponse(
+    val month: String,
+    val isClosed: Boolean = false,
+    val closures: List<ClosureDto> = emptyList()
+)
+
+@Serializable
+data class CloseMonthRequest(val note: String? = null)
+
+@Serializable
+data class ReopenMonthRequest(val reason: String)
+
+/** `carriedOver` is how many undecided expenses moved into the next month. */
+@Serializable
+data class CloseMonthResponse(
+    val ok: Boolean = true,
+    val month: String,
+    val carriedOver: Int = 0
+)
+
+// ---------------------------------------------------------------------------
+// Activity feed
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class ActivityExpenseRef(
+    val id: Long,
+    val description: String,
+    val amount: String
+)
+
+@Serializable
+data class ActivityEntryDto(
+    val action: String,
+    val detail: String? = null,
+    val createdAt: String? = null,
+    val actor: PersonRef,
+    /** Null for things that happened to the flat rather than to an expense. */
+    val expense: ActivityExpenseRef? = null
+)
+
+@Serializable
+data class ActivityResponse(val activity: List<ActivityEntryDto> = emptyList())
+
+// ---------------------------------------------------------------------------
+// Trend / monthly comparison
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class TrendMonthDto(
+    val month: String,
+    val spent: String,
+    val count: Int = 0,
+    val received: String
+)
+
+@Serializable
+data class TrendResponse(val months: List<TrendMonthDto> = emptyList())
+
+// ---------------------------------------------------------------------------
+// Settlement
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class SettlementMemberDto(
+    val userId: Long,
+    val name: String,
+    val isAdmin: Boolean = false,
+    val expected: String,
+    val paid: String,
+    val outstanding: String,
+    val spent: String,
+    /** paid + spent - expected. Positive: the flat owes them. */
+    val net: String
+)
+
+@Serializable
+data class SettlementTotals(
+    val expected: String,
+    val paid: String,
+    val outstanding: String,
+    val spent: String
+)
+
+@Serializable
+data class SettlementResponse(
+    val month: String,
+    val isClosed: Boolean = false,
+    val members: List<SettlementMemberDto> = emptyList(),
+    val totals: SettlementTotals
+)

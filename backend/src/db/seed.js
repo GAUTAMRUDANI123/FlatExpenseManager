@@ -41,6 +41,8 @@ async function main() {
       const groupId = old[0].id;
       await conn.query('DELETE FROM expenses WHERE group_id = ?', [groupId]);
       await conn.query('DELETE FROM monthly_contributions WHERE group_id = ?', [groupId]);
+      await conn.query('DELETE FROM month_closures WHERE group_id = ?', [groupId]);
+      await conn.query('DELETE FROM group_audit WHERE group_id = ?', [groupId]);
       await conn.query('DELETE FROM categories WHERE group_id = ?', [groupId]);
       await conn.query('DELETE FROM group_members WHERE group_id = ?', [groupId]);
       await conn.query('DELETE FROM `groups` WHERE id = ?', [groupId]);
@@ -186,7 +188,61 @@ async function main() {
       }
     }
 
+    // Five months of settled history. Without it the trend and comparison
+    // charts open empty on a fresh install, which makes them look broken
+    // rather than new.
+    const history = [
+      { back: 5, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '4100.00', 'Gautam'], ['Electricity', 'Electricity', '1980.00', 'Rahul'], ['Milk', 'Milk', '1250.00', 'Anjali']] },
+      { back: 4, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '3750.00', 'Priya'], ['Electricity', 'Electricity', '2260.00', 'Rahul'], ['Internet', 'Broadband', '1199.00', 'Priya']] },
+      { back: 3, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '4980.00', 'Gautam'], ['Gas', 'Gas cylinder', '1150.00', 'Vikram'], ['Cleaning', 'Cleaner', '1800.00', 'Anjali']] },
+      { back: 2, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '3420.00', 'Anjali'], ['Electricity', 'Electricity', '3100.00', 'Rahul'], ['Water', 'Water tanker', '900.00', 'Vikram']] },
+      { back: 1, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '5240.00', 'Gautam'], ['Internet', 'Broadband', '1199.00', 'Priya'], ['Maintenance', 'Plumber', '2300.00', 'Rahul']] }
+    ];
+
+    for (const { back, rows } of history) {
+      const d = new Date();
+      d.setDate(1);
+      d.setMonth(d.getMonth() - back);
+      // Built from local parts, not toISOString(): east of UTC the first of
+      // the month converts back to the last day of the previous one, which
+      // would file every historical row a month early.
+      const histMonth =
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+      const histDate = `${histMonth.slice(0, 8)}12`;
+
+      for (const person of PEOPLE) {
+        await conn.query(
+          `INSERT INTO monthly_contributions
+             (group_id, user_id, month, expected_amount, paid_amount, status, paid_at, recorded_by)
+           VALUES (?, ?, ?, '5000.00', '5000.00', 'paid', ?, ?)`,
+          [groupId, ids[person.name], histMonth, d, ids.Rahul]
+        );
+      }
+
+      for (const [category, description, amount, payer] of rows) {
+        const [result] = await conn.query(
+          `INSERT INTO expenses
+             (group_id, category_id, description, amount, paid_by, split_to, expense_date,
+              status, created_by, approved_by, approved_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, ?, ?)`,
+          [groupId, categoryId(category), description, amount, ids[payer], ids.Rahul,
+           histDate, ids[payer], ids.Rahul, d]
+        );
+        await conn.query(
+          `INSERT INTO expense_audit (expense_id, action, to_status, actor_id)
+           VALUES (?, 'created', 'pending', ?)`,
+          [result.insertId, ids[payer]]
+        );
+        await conn.query(
+          `INSERT INTO expense_audit (expense_id, action, from_status, to_status, actor_id)
+           VALUES (?, 'approved', 'pending', 'approved', ?)`,
+          [result.insertId, ids.Rahul]
+        );
+      }
+    }
+
     console.log(`Seeded group ${groupId} "${GROUP_NAME}" with ${PEOPLE.length} members.`);
+    console.log(`Plus ${history.length} months of settled history, so the charts have something to show.`);
   });
 
   console.log('\nSign in with any of:');

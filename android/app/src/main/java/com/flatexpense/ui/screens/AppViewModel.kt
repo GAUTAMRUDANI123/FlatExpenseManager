@@ -7,7 +7,13 @@ import com.flatexpense.data.Repository
 import com.flatexpense.data.Session
 import com.flatexpense.data.api.BulkExpectedRequest
 import com.flatexpense.data.api.CategoryDto
+import com.flatexpense.data.api.ActivityResponse
 import com.flatexpense.data.api.ChangePasswordRequest
+import com.flatexpense.data.api.CloseMonthRequest
+import com.flatexpense.data.api.MonthsResponse
+import com.flatexpense.data.api.ReopenMonthRequest
+import com.flatexpense.data.api.SettlementResponse
+import com.flatexpense.data.api.TrendResponse
 import com.flatexpense.data.api.ContributionsResponse
 import com.flatexpense.data.api.CreateCategoryRequest
 import com.flatexpense.data.api.CreateExpenseRequest
@@ -83,6 +89,22 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _report = MutableStateFlow(Async<MonthlyReportResponse>())
     val report: StateFlow<Async<MonthlyReportResponse>> = _report.asStateFlow()
+
+    private val _trend = MutableStateFlow(Async<TrendResponse>())
+    val trend: StateFlow<Async<TrendResponse>> = _trend.asStateFlow()
+
+    private val _settlement = MutableStateFlow(Async<SettlementResponse>())
+    val settlement: StateFlow<Async<SettlementResponse>> = _settlement.asStateFlow()
+
+    private val _activity = MutableStateFlow(Async<ActivityResponse>())
+    val activity: StateFlow<Async<ActivityResponse>> = _activity.asStateFlow()
+
+    private val _months = MutableStateFlow(Async<MonthsResponse>())
+    val months: StateFlow<Async<MonthsResponse>> = _months.asStateFlow()
+
+    /** Free-text expense search. Empty means "no search applied". */
+    private val _search = MutableStateFlow("")
+    val search: StateFlow<String> = _search.asStateFlow()
 
     private val _toast = MutableStateFlow<ToastMessage?>(null)
     val toast: StateFlow<ToastMessage?> = _toast.asStateFlow()
@@ -242,6 +264,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         loadMembers()
         loadContributions()
         loadReport()
+        loadTrend()
+        loadSettlement()
+        loadMonths()
     }
 
     fun loadDashboard() {
@@ -255,11 +280,31 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun loadExpenses(status: String? = null) {
+    /**
+     * The status filter is held here rather than passed in each time, so that
+     * typing in the search box does not silently drop the chip the user
+     * selected.
+     */
+    private var statusFilter: String? = null
+
+    fun loadExpenses(status: String? = statusFilter) {
         val id = groupId().takeIf { it > 0 } ?: return
+        statusFilter = status
+        val term = _search.value.trim().ifBlank { null }
         viewModelScope.launch {
             _expenses.value = _expenses.value.copy(loading = true, error = null)
-            repo.call { it.expenses(id, status = status, month = _month.value) }.fold(
+            repo.call {
+                it.expenses(
+                    id,
+                    status = status,
+                    // Search is global on purpose: looking for "that big
+                    // electricity bill" is exactly the case where you do not
+                    // know which month it was in, so restricting it to the
+                    // selected month would hide the answer.
+                    month = if (term == null) _month.value else null,
+                    query = term
+                )
+            }.fold(
                 onSuccess = { _expenses.value = Async(data = it.expenses) },
                 onFailure = { _expenses.value = Async(error = it.message) }
             )
@@ -333,6 +378,56 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 onFailure = { _report.value = Async(error = it.message) }
             )
         }
+    }
+
+    fun loadTrend(months: Int = 6) {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            _trend.value = _trend.value.copy(loading = true, error = null)
+            repo.call { it.trend(id, months, _month.value) }.fold(
+                onSuccess = { _trend.value = Async(data = it) },
+                onFailure = { _trend.value = Async(error = it.message) }
+            )
+        }
+    }
+
+    fun loadSettlement() {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            _settlement.value = _settlement.value.copy(loading = true, error = null)
+            repo.call { it.settlement(id, _month.value) }.fold(
+                onSuccess = { _settlement.value = Async(data = it) },
+                onFailure = { _settlement.value = Async(error = it.message) }
+            )
+        }
+    }
+
+    fun loadActivity() {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            _activity.value = _activity.value.copy(loading = true, error = null)
+            repo.call { it.activity(id) }.fold(
+                onSuccess = { _activity.value = Async(data = it) },
+                onFailure = { _activity.value = Async(error = it.message) }
+            )
+        }
+    }
+
+    fun loadMonths() {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            _months.value = _months.value.copy(loading = true, error = null)
+            repo.call { it.months(id, _month.value) }.fold(
+                onSuccess = { _months.value = Async(data = it) },
+                onFailure = { _months.value = Async(error = it.message) }
+            )
+        }
+    }
+
+    /** Typing filters the list; an empty box means no search term is sent. */
+    fun setSearch(value: String) {
+        _search.value = value
+        loadExpenses()
     }
 
     // -- actions ------------------------------------------------------------
@@ -579,6 +674,49 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     onDone()
                 },
                 onFailure = { notify(it.message ?: "Could not transfer admin") }
+            )
+        }
+    }
+
+    /**
+     * Closing reports how many undecided expenses were moved into the next
+     * month, because that is a change the Admin did not explicitly ask for and
+     * should not have to discover later.
+     */
+    fun closeMonth(note: String, onDone: () -> Unit) {
+        val id = groupId().takeIf { it > 0 } ?: return
+        val month = _month.value
+        viewModelScope.launch {
+            repo.call {
+                it.closeMonth(id, month, CloseMonthRequest(note.trim().ifBlank { null }))
+            }.fold(
+                onSuccess = { result ->
+                    notify(
+                        if (result.carriedOver > 0) {
+                            "$month closed — ${result.carriedOver} pending expense(s) moved to the next month"
+                        } else {
+                            "$month closed"
+                        }
+                    )
+                    refreshAll()
+                    onDone()
+                },
+                onFailure = { notify(it.message ?: "Could not close the month") }
+            )
+        }
+    }
+
+    fun reopenMonth(reason: String, onDone: () -> Unit) {
+        val id = groupId().takeIf { it > 0 } ?: return
+        val month = _month.value
+        viewModelScope.launch {
+            repo.call { it.reopenMonth(id, month, ReopenMonthRequest(reason.trim())) }.fold(
+                onSuccess = {
+                    notify("$month reopened")
+                    refreshAll()
+                    onDone()
+                },
+                onFailure = { notify(it.message ?: "Could not reopen the month") }
             )
         }
     }

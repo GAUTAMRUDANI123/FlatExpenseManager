@@ -16,11 +16,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -62,16 +67,50 @@ private val STATUS_FILTERS = listOf(
 fun ExpenseListScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Unit) {
     val state by viewModel.expenses.collectAsStateWithLifecycle()
     val month by viewModel.month.collectAsStateWithLifecycle()
+    val search by viewModel.search.collectAsStateWithLifecycle()
     var filter by remember { mutableStateOf<String?>(null) }
+
+    val searching = search.isNotBlank()
 
     LaunchedEffect(filter, month) { viewModel.loadExpenses(filter) }
 
     Column(Modifier.fillMaxSize()) {
-        MonthSelector(
-            month = month,
-            onPrevious = { viewModel.shiftMonth(-1) },
-            onNext = { viewModel.shiftMonth(1) }
+        OutlinedTextField(
+            value = search,
+            onValueChange = viewModel::setSearch,
+            label = { Text("Search expenses") },
+            placeholder = { Text("electricity, Gautam, groceries…") },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (searching) {
+                    IconButton(onClick = { viewModel.setSearch("") }) {
+                        Icon(Icons.Filled.Close, contentDescription = "Clear search")
+                    }
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp)
         )
+
+        // The month control is hidden while searching, because search
+        // deliberately looks across every month — leaving it on screen would
+        // suggest it still narrows the results.
+        if (!searching) {
+            MonthSelector(
+                month = month,
+                onPrevious = { viewModel.shiftMonth(-1) },
+                onNext = { viewModel.shiftMonth(1) }
+            )
+        } else {
+            Text(
+                text = "Searching every month",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+        }
 
         FlowRow(
             modifier = Modifier.padding(horizontal = 16.dp),
@@ -91,6 +130,7 @@ fun ExpenseListScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Unit) {
             state.loading && expenses.isEmpty() -> LoadingBox()
             state.error != null && expenses.isEmpty() ->
                 ErrorBox(state.error!!, onRetry = { viewModel.loadExpenses(filter) })
+            expenses.isEmpty() && searching -> EmptyBox("Nothing matches \"$search\".")
             expenses.isEmpty() -> EmptyBox("No expenses for this month.")
             else -> LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                 items(expenses, key = { it.id }) { expense ->

@@ -75,6 +75,8 @@ interface ApiService {
         @Query("status") status: String? = null,
         @Query("month") month: String? = null,
         @Query("categoryId") categoryId: Long? = null,
+        /** Free text over description, category and payer name. */
+        @Query("q") query: String? = null,
         @Query("limit") limit: Int = 100
     ): ExpenseListResponse
 
@@ -136,4 +138,44 @@ interface ApiService {
         @Path("groupId") groupId: Long,
         @Query("month") month: String? = null
     ): MonthlyReportResponse
+
+    /** Approved spend and contributions received per month, oldest first. */
+    @GET("api/groups/{groupId}/reports/trend")
+    suspend fun trend(
+        @Path("groupId") groupId: Long,
+        @Query("months") months: Int = 6,
+        @Query("month") month: String? = null
+    ): TrendResponse
+
+    @GET("api/groups/{groupId}/settlement")
+    suspend fun settlement(
+        @Path("groupId") groupId: Long,
+        @Query("month") month: String? = null
+    ): SettlementResponse
+
+    @GET("api/groups/{groupId}/activity")
+    suspend fun activity(
+        @Path("groupId") groupId: Long,
+        @Query("limit") limit: Int = 100
+    ): ActivityResponse
+
+    @GET("api/groups/{groupId}/months")
+    suspend fun months(
+        @Path("groupId") groupId: Long,
+        @Query("month") month: String? = null
+    ): MonthsResponse
+
+    @POST("api/groups/{groupId}/months/{month}/close")
+    suspend fun closeMonth(
+        @Path("groupId") groupId: Long,
+        @Path("month") month: String,
+        @Body body: CloseMonthRequest
+    ): CloseMonthResponse
+
+    @POST("api/groups/{groupId}/months/{month}/reopen")
+    suspend fun reopenMonth(
+        @Path("groupId") groupId: Long,
+        @Path("month") month: String,
+        @Body body: ReopenMonthRequest
+    ): OkResponse
 }

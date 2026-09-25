@@ -10,7 +10,10 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ListAlt
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.BarChart
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.PieChart
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Payments
@@ -45,7 +48,9 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.flatexpense.ui.screens.ActivityScreen
 import com.flatexpense.ui.screens.AddExpenseScreen
+import com.flatexpense.ui.screens.AnalyticsScreen
 import com.flatexpense.ui.screens.AppViewModel
 import com.flatexpense.ui.screens.CategoriesScreen
 import com.flatexpense.ui.screens.ContributionsScreen
@@ -57,6 +62,7 @@ import com.flatexpense.ui.screens.MembersScreen
 import com.flatexpense.ui.screens.PendingApprovalsScreen
 import com.flatexpense.ui.screens.ProfileScreen
 import com.flatexpense.ui.screens.ReportsScreen
+import com.flatexpense.ui.screens.SettlementScreen
 
 private data class Tab(
     val route: String,
@@ -112,6 +118,9 @@ fun AppScaffold(viewModel: AppViewModel) {
         currentRoute == "add" -> "Add expense"
         currentRoute?.startsWith("edit/") == true -> "Edit expense"
         currentRoute == "reports" -> "Monthly report"
+        currentRoute == "analytics" -> "Analytics"
+        currentRoute == "settlement" -> "Settlement"
+        currentRoute == "activity" -> "Activity log"
         currentRoute == "categories" -> "Categories"
         currentRoute == "members" -> "Members"
         currentRoute == "profile" -> "Profile"
@@ -205,6 +214,9 @@ fun AppScaffold(viewModel: AppViewModel) {
                     }
                 }
                 composable("reports") { ReportsScreen(viewModel) }
+                composable("analytics") { AnalyticsScreen(viewModel) }
+                composable("settlement") { SettlementScreen(viewModel) }
+                composable("activity") { ActivityScreen(viewModel) }
                 composable("categories") { CategoriesScreen(viewModel) }
                 composable("members") { MembersScreen(viewModel) }
                 composable("profile") { ProfileScreen(viewModel) }
@@ -224,7 +236,10 @@ fun AppScaffold(viewModel: AppViewModel) {
 private data class MoreEntry(val route: String, val label: String, val icon: ImageVector)
 
 private val MORE_ENTRIES = listOf(
+    MoreEntry("analytics", "Analytics & charts", Icons.Filled.PieChart),
+    MoreEntry("settlement", "Settlement", Icons.Filled.AccountBalance),
     MoreEntry("reports", "Monthly report", Icons.Filled.BarChart),
+    MoreEntry("activity", "Activity log", Icons.Filled.History),
     MoreEntry("categories", "Categories", Icons.Filled.Sell),
     MoreEntry("members", "Members", Icons.Filled.Groups),
     MoreEntry("profile", "Profile & settings", Icons.Filled.Person)

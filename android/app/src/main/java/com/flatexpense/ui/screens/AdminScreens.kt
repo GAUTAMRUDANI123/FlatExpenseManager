@@ -337,8 +337,133 @@ fun ReportsScreen(viewModel: AppViewModel) {
                         data.bySplitTo.forEach { StatRow(it.name, formatMoney(it.total)) }
                     }
                 }
+
+                item { MonthClosingCard(viewModel) }
             }
         }
+    }
+}
+
+/**
+ * Closing a month seals it. Sits at the foot of the report because that is the
+ * point at which the Admin has just read the month's figures and is in a
+ * position to say they are final.
+ */
+@Composable
+private fun MonthClosingCard(viewModel: AppViewModel) {
+    val session by viewModel.session.collectAsStateWithLifecycle()
+    val monthsState by viewModel.months.collectAsStateWithLifecycle()
+    val month by viewModel.month.collectAsStateWithLifecycle()
+    var closing by remember { mutableStateOf(false) }
+    var reopening by remember { mutableStateOf(false) }
+    var note by remember { mutableStateOf("") }
+    var reason by remember { mutableStateOf("") }
+
+    LaunchedEffect(month) { viewModel.loadMonths() }
+
+    val isClosed = monthsState.data?.isClosed == true
+
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(18.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Month status",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold
+                )
+                StatusChip(if (isClosed) "Closed" else "Open")
+            }
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = if (isClosed) {
+                    "$month is settled. Its expenses and contributions cannot be " +
+                        "changed until it is reopened."
+                } else {
+                    "$month is still open. Closing it fixes its figures so they " +
+                        "cannot drift afterwards."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            if (session.isAdmin) {
+                Spacer(Modifier.height(12.dp))
+                OutlinedButton(
+                    onClick = { if (isClosed) reopening = true else closing = true },
+                    modifier = Modifier.fillMaxWidth()
+                ) { Text(if (isClosed) "Reopen $month" else "Close $month") }
+            }
+        }
+    }
+
+    if (closing) {
+        AlertDialog(
+            onDismissRequest = { closing = false },
+            title = { Text("Close $month?") },
+            text = {
+                Column {
+                    Text(
+                        text = "Its expenses and contributions become read-only. " +
+                            "Anything still awaiting approval moves into the next " +
+                            "month rather than being rejected, so nothing is lost.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = { Text("Note (optional)") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    viewModel.closeMonth(note) { closing = false; note = "" }
+                }) { Text("Close month") }
+            },
+            dismissButton = {
+                TextButton(onClick = { closing = false }) { Text("Cancel") }
+            }
+        )
+    }
+
+    if (reopening) {
+        AlertDialog(
+            onDismissRequest = { reopening = false },
+            title = { Text("Reopen $month?") },
+            text = {
+                Column {
+                    Text(
+                        text = "The month becomes editable again. Reopening is recorded " +
+                            "in the activity log, so the flat can see that a settled " +
+                            "month was changed and why.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        label = { Text("Reason") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { viewModel.reopenMonth(reason) { reopening = false; reason = "" } },
+                    enabled = reason.isNotBlank()
+                ) { Text("Reopen") }
+            },
+            dismissButton = {
+                TextButton(onClick = { reopening = false }) { Text("Cancel") }
+            }
+        )
     }
 }
 
