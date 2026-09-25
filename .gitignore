@@ -1,0 +1,29 @@
+# --- Secrets and machine-specific config -----------------------------------
+# .env holds DB_PASSWORD and JWT_SECRET. Never commit it; .env.example is the
+# template that belongs in the repo.
+.env
+*.env
+!.env.example
+local.properties
+
+# --- Build output ----------------------------------------------------------
+build/
+.gradle/
+*.apk
+*.aab
+*.ap_
+*.dex
+
+# --- Dependencies ----------------------------------------------------------
+node_modules/
+
+# --- IDE -------------------------------------------------------------------
+.idea/
+*.iml
+.vscode/
+captures/
+
+# --- Logs and OS cruft -----------------------------------------------------
+*.log
+Thumbs.db
+.DS_Store
