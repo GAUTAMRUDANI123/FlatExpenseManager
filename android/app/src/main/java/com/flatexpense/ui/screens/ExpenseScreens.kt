@@ -20,7 +20,9 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -40,8 +42,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.flatexpense.data.api.ExpenseDto
+import com.flatexpense.ui.common.AppCard
+import com.flatexpense.ui.common.CategoryAvatar
 import com.flatexpense.ui.common.EmptyBox
 import com.flatexpense.ui.common.ErrorBox
 import com.flatexpense.ui.common.LoadingBox
@@ -152,6 +158,12 @@ fun PendingApprovalsScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Uni
     val state by viewModel.pending.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
 
+    // Which expense is being rejected, if any. Held as the whole expense so
+    // the dialog can name it — "Reject this expense?" three cards down the
+    // list is not a question anyone should have to answer from memory.
+    var rejecting by remember { mutableStateOf<ExpenseDto?>(null) }
+    var reason by remember { mutableStateOf("") }
+
     LaunchedEffect(Unit) { viewModel.loadPending() }
 
     val expenses = state.data.orEmpty()
@@ -182,48 +194,124 @@ fun PendingApprovalsScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Uni
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 items(expenses, key = { it.id }) { expense ->
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(14.dp)) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = expense.description,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = FontWeight.Medium,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Text(
-                                    text = formatMoney(expense.amount),
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                            Spacer(Modifier.height(4.dp))
-                            Text(
-                                text = "${expense.categoryName} · Paid by ${expense.paidBy.name} · " +
-                                    "Split to ${expense.splitTo.name} · ${formatDate(expense.expenseDate)}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                    AppCard {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CategoryAvatar(
+                                slug = expense.categoryIcon,
+                                name = expense.categoryName,
+                                size = 36.dp
                             )
-                            Spacer(Modifier.height(10.dp))
+                            Spacer(Modifier.width(12.dp))
+                            Text(
+                                text = expense.description,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 2,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                text = formatMoney(expense.amount),
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            text = "${expense.categoryName} · Paid by ${expense.paidBy.name} · " +
+                                "Split to ${expense.splitTo.name} · ${formatDate(expense.expenseDate)}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(12.dp))
+
+                        if (session.isAdmin) {
+                            // Approve and Reject carry equal weight: the whole
+                            // point of this screen is deciding, and burying
+                            // one of the two answers behind Details made
+                            // rejecting quietly harder than approving.
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                OutlinedButton(onClick = { onOpenExpense(expense.id) }) {
-                                    Text("Details")
-                                }
-                                if (session.isAdmin) {
-                                    Button(onClick = { viewModel.approve(expense.id) }) {
-                                        Text("Approve")
-                                    }
-                                }
+                                Button(
+                                    onClick = { viewModel.approve(expense.id) },
+                                    modifier = Modifier.weight(1f)
+                                ) { Text("Approve") }
+                                OutlinedButton(
+                                    onClick = { rejecting = expense; reason = "" },
+                                    modifier = Modifier.weight(1f),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.error
+                                    ),
+                                    border = BorderStroke(
+                                        1.dp,
+                                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                                    )
+                                ) { Text("Reject") }
                             }
+                            Spacer(Modifier.height(6.dp))
+                            TextButton(
+                                onClick = { onOpenExpense(expense.id) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("View details") }
+                        } else {
+                            OutlinedButton(
+                                onClick = { onOpenExpense(expense.id) },
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("View details") }
                         }
                     }
                 }
             }
         }
+    }
+
+    rejecting?.let { target ->
+        AlertDialog(
+            onDismissRequest = { rejecting = null },
+            title = { Text("Reject this expense?") },
+            text = {
+                Column {
+                    // The card that was tapped may already have scrolled away,
+                    // so the dialog restates what is being rejected.
+                    Text(
+                        text = "${target.description} · ${formatMoney(target.amount)}",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        text = "It stays in the history and is left out of approved " +
+                            "totals. ${target.paidBy.name} will see the reason, so make " +
+                            "it one that explains the decision.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it },
+                        label = { Text("Reason") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.reject(target.id, reason)
+                        rejecting = null
+                        reason = ""
+                    },
+                    // The server requires a reason; disabling the button says
+                    // so before the round trip rather than after it.
+                    enabled = reason.isNotBlank()
+                ) { Text("Reject") }
+            },
+            dismissButton = {
+                TextButton(onClick = { rejecting = null }) { Text("Cancel") }
+            }
+        )
     }
 }
 
