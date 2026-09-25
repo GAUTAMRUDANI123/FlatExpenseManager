@@ -82,6 +82,18 @@ CREATE USER 'flatapp'@'127.0.0.1' IDENTIFIED BY 'your-password';
 GRANT SELECT, INSERT, UPDATE, DELETE ON flat_expense_manager.* TO 'flatapp'@'127.0.0.1';
 ```
 
+`npm run migrate` applies the same file from Node, which is useful when there is
+no `mysql` client on the machine. It needs an account with `CREATE` rights, so
+run it before you switch `.env` over to the application user:
+
+```bash
+cd backend
+DB_USER=root DB_PASSWORD=your-root-password npm run migrate
+```
+
+It is idempotent — `schema.sql` is written entirely with `CREATE ... IF NOT
+EXISTS`, so re-running it will not touch existing rows.
+
 ### 2. API
 
 ```bash
