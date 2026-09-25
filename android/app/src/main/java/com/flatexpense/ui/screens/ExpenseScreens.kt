@@ -48,6 +48,7 @@ import com.flatexpense.ui.common.LoadingBox
 import com.flatexpense.ui.common.StatRow
 import com.flatexpense.ui.common.StatusChip
 import com.flatexpense.ui.common.StatusColors
+import com.flatexpense.ui.common.statusTextColor
 import com.flatexpense.ui.common.formatDate
 import com.flatexpense.ui.common.formatMoney
 
@@ -132,7 +133,7 @@ fun ExpenseListScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Unit) {
                 ErrorBox(state.error!!, onRetry = { viewModel.loadExpenses(filter) })
             expenses.isEmpty() && searching -> EmptyBox("Nothing matches \"$search\".")
             expenses.isEmpty() -> EmptyBox("No expenses for this month.")
-            else -> LazyColumn(contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+            else -> LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp)) {
                 items(expenses, key = { it.id }) { expense ->
                     ExpenseRow(expense = expense, onClick = { onOpenExpense(expense.id) })
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -308,7 +309,7 @@ fun ExpenseDetailScreen(
                             Text(
                                 text = "Reason: ${expense.rejectionReason}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = StatusColors.rejected
+                                color = statusTextColor("rejected")
                             )
                         }
                     }

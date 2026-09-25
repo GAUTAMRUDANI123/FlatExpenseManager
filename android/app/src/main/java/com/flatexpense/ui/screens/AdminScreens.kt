@@ -47,9 +47,11 @@ import com.flatexpense.data.api.MemberDto
 import com.flatexpense.ui.common.EmptyBox
 import com.flatexpense.ui.common.ErrorBox
 import com.flatexpense.ui.common.LoadingBox
+import com.flatexpense.ui.common.SectionCard
 import com.flatexpense.ui.common.StatRow
 import com.flatexpense.ui.common.StatusChip
 import com.flatexpense.ui.common.StatusColors
+import com.flatexpense.ui.common.statusTextColor
 import com.flatexpense.ui.common.formatMoney
 import com.flatexpense.ui.common.formatMonth
 
@@ -94,12 +96,12 @@ fun ContributionsScreen(viewModel: AppViewModel) {
                             StatRow(
                                 "Received",
                                 formatMoney(data.totals.received),
-                                valueColor = StatusColors.approved
+                                valueColor = statusTextColor("approved")
                             )
                             StatRow(
                                 "Still pending",
                                 formatMoney(data.totals.pending),
-                                valueColor = StatusColors.pending
+                                valueColor = statusTextColor("pending")
                             )
                         }
                     }
@@ -280,18 +282,18 @@ fun ReportsScreen(viewModel: AppViewModel) {
                         StatRow(
                             "Approved (${data.expenseTotals.counts.approved})",
                             formatMoney(data.expenseTotals.byStatus.approved),
-                            valueColor = StatusColors.approved,
+                            valueColor = statusTextColor("approved"),
                             emphasised = true
                         )
                         StatRow(
                             "Pending (${data.expenseTotals.counts.pending})",
                             formatMoney(data.expenseTotals.byStatus.pending),
-                            valueColor = StatusColors.pending
+                            valueColor = statusTextColor("pending")
                         )
                         StatRow(
                             "Rejected (${data.expenseTotals.counts.rejected})",
                             formatMoney(data.expenseTotals.byStatus.rejected),
-                            valueColor = StatusColors.rejected
+                            valueColor = statusTextColor("rejected")
                         )
                         Spacer(Modifier.height(6.dp))
                         Text(

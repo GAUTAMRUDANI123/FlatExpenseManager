@@ -28,6 +28,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
@@ -35,12 +36,14 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -70,9 +73,12 @@ private data class Tab(
     val icon: ImageVector
 )
 
+// Five tabs share a 320dp-wide bar, so every label has to fit on one line at
+// the narrowest supported width. "Expenses" wrapped to "Expense / s"; "Spends"
+// says the same thing and fits.
 private val TABS = listOf(
     Tab("dashboard", "Home", Icons.Filled.Dashboard),
-    Tab("expenses", "Expenses", Icons.AutoMirrored.Filled.ListAlt),
+    Tab("expenses", "Spends", Icons.AutoMirrored.Filled.ListAlt),
     Tab("approvals", "Approve", Icons.Filled.TaskAlt),
     Tab("contributions", "Dues", Icons.Filled.Payments),
     Tab("more", "More", Icons.Filled.Person)
@@ -131,7 +137,18 @@ fun AppScaffold(viewModel: AppViewModel) {
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(title) },
+                title = {
+                    Text(
+                        text = title,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.titleLarge
+                    )
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.background,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                ),
                 navigationIcon = {
                     if (!isTopLevel) {
                         IconButton(onClick = { navController.popBackStack() }) {
@@ -178,7 +195,14 @@ fun AppScaffold(viewModel: AppViewModel) {
                                     Icon(tab.icon, contentDescription = tab.label)
                                 }
                             },
-                            label = { Text(tab.label) }
+                            label = {
+                                Text(
+                                    tab.label,
+                                    maxLines = 1,
+                                    softWrap = false,
+                                    style = MaterialTheme.typography.labelSmall
+                                )
+                            }
                         )
                     }
                 }
