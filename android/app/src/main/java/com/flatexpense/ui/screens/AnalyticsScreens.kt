@@ -36,6 +36,7 @@ import com.flatexpense.ui.common.StatRow
 import com.flatexpense.ui.common.StatusChip
 import com.flatexpense.ui.common.TrendLines
 import com.flatexpense.ui.common.formatMoney
+import com.flatexpense.ui.common.formatMonth
 
 // ---------------------------------------------------------------------------
 // Analytics — category breakdown and month-to-month comparison
@@ -80,7 +81,7 @@ fun AnalyticsScreen(viewModel: AppViewModel) {
 
             ChartCard(
                 title = "Where the money went",
-                subtitle = "Approved expenses in $month, largest first"
+                subtitle = "Approved expenses in ${formatMonth(month)}, largest first"
             ) {
                 CategoryBars(categories)
             }
@@ -147,21 +148,21 @@ private fun MonthComparison(months: List<Pair<String, Double>>) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(18.dp)) {
             Text(
-                text = "Compared with ${previous.first}",
+                text = "Compared with ${formatMonth(previous.first)}",
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold
             )
             Spacer(Modifier.height(8.dp))
-            StatRow(previous.first, formatMoney(previous.second.toString()))
-            StatRow(current.first, formatMoney(current.second.toString()))
+            StatRow(formatMonth(previous.first), formatMoney(previous.second.toString()))
+            StatRow(formatMonth(current.first), formatMoney(current.second.toString()))
             Spacer(Modifier.height(8.dp))
             Text(
                 text = when {
                     previous.second == 0.0 && current.second == 0.0 -> "No spending in either month."
-                    pct == null -> "Nothing was spent in ${previous.first}, so there is nothing to compare against."
-                    delta > 0 -> "Up ${formatMoney(delta.toString())} (${pct.toInt()}%) on ${previous.first}."
-                    delta < 0 -> "Down ${formatMoney((-delta).toString())} (${(-pct).toInt()}%) on ${previous.first}."
-                    else -> "Exactly the same as ${previous.first}."
+                    pct == null -> "Nothing was spent in ${formatMonth(previous.first)}, so there is nothing to compare against."
+                    delta > 0 -> "Up ${formatMoney(delta.toString())} (${Math.round(pct)}%) on ${formatMonth(previous.first)}."
+                    delta < 0 -> "Down ${formatMoney((-delta).toString())} (${Math.round(-pct)}%) on ${formatMonth(previous.first)}."
+                    else -> "Exactly the same as ${formatMonth(previous.first)}."
                 },
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -208,7 +209,7 @@ fun SettlementScreen(viewModel: AppViewModel) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "The flat in ${data.month}",
+                            text = "The flat in ${formatMonth(data.month)}",
                             style = MaterialTheme.typography.titleSmall,
                             fontWeight = FontWeight.SemiBold
                         )

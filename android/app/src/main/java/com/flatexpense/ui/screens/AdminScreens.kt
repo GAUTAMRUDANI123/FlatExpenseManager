@@ -51,6 +51,7 @@ import com.flatexpense.ui.common.StatRow
 import com.flatexpense.ui.common.StatusChip
 import com.flatexpense.ui.common.StatusColors
 import com.flatexpense.ui.common.formatMoney
+import com.flatexpense.ui.common.formatMonth
 
 // ---------------------------------------------------------------------------
 // Monthly contributions (section 4, Table 2)
@@ -380,10 +381,10 @@ private fun MonthClosingCard(viewModel: AppViewModel) {
             Spacer(Modifier.height(8.dp))
             Text(
                 text = if (isClosed) {
-                    "$month is settled. Its expenses and contributions cannot be " +
+                    "${formatMonth(month)} is settled. Its expenses and contributions cannot be " +
                         "changed until it is reopened."
                 } else {
-                    "$month is still open. Closing it fixes its figures so they " +
+                    "${formatMonth(month)} is still open. Closing it fixes its figures so they " +
                         "cannot drift afterwards."
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -395,7 +396,7 @@ private fun MonthClosingCard(viewModel: AppViewModel) {
                 OutlinedButton(
                     onClick = { if (isClosed) reopening = true else closing = true },
                     modifier = Modifier.fillMaxWidth()
-                ) { Text(if (isClosed) "Reopen $month" else "Close $month") }
+                ) { Text(if (isClosed) "Reopen ${formatMonth(month)}" else "Close ${formatMonth(month)}") }
             }
         }
     }
@@ -403,7 +404,7 @@ private fun MonthClosingCard(viewModel: AppViewModel) {
     if (closing) {
         AlertDialog(
             onDismissRequest = { closing = false },
-            title = { Text("Close $month?") },
+            title = { Text("Close ${formatMonth(month)}?") },
             text = {
                 Column {
                     Text(
@@ -436,7 +437,7 @@ private fun MonthClosingCard(viewModel: AppViewModel) {
     if (reopening) {
         AlertDialog(
             onDismissRequest = { reopening = false },
-            title = { Text("Reopen $month?") },
+            title = { Text("Reopen ${formatMonth(month)}?") },
             text = {
                 Column {
                     Text(

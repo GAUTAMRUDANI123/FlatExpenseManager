@@ -14,6 +14,7 @@ import com.flatexpense.data.api.MonthsResponse
 import com.flatexpense.data.api.ReopenMonthRequest
 import com.flatexpense.data.api.SettlementResponse
 import com.flatexpense.data.api.TrendResponse
+import com.flatexpense.ui.common.formatMonth
 import com.flatexpense.data.api.ContributionsResponse
 import com.flatexpense.data.api.CreateCategoryRequest
 import com.flatexpense.data.api.CreateExpenseRequest
@@ -693,9 +694,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 onSuccess = { result ->
                     notify(
                         if (result.carriedOver > 0) {
-                            "$month closed — ${result.carriedOver} pending expense(s) moved to the next month"
+                            "${formatMonth(month)} closed — ${result.carriedOver} pending expense(s) moved to the next month"
                         } else {
-                            "$month closed"
+                            "${formatMonth(month)} closed"
                         }
                     )
                     refreshAll()
@@ -712,7 +713,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             repo.call { it.reopenMonth(id, month, ReopenMonthRequest(reason.trim())) }.fold(
                 onSuccess = {
-                    notify("$month reopened")
+                    notify("${formatMonth(month)} reopened")
                     refreshAll()
                     onDone()
                 },

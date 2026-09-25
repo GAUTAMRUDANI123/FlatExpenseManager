@@ -183,8 +183,10 @@ fun CategoryBars(
                         color = ChartColors.ink()
                     )
                     Text(
-                        // Direct label: the value, plus the share the bar length encodes.
-                        text = "${formatMoney(amount)}  ·  ${share.toInt()}%",
+                        // Direct label: the value, plus the share the bar
+                        // length encodes. Rounded, not truncated — two
+                        // categories splitting a total showed "67% · 32%".
+                        text = "${formatMoney(amount)}  ·  ${Math.round(share)}%",
                         style = TextStyle(fontSize = 12.sp),
                         color = ChartColors.secondary()
                     )
@@ -210,17 +212,20 @@ fun CategoryBars(
     }
 }
 
-/** Shared y-axis scale: a rounded ceiling so gridlines land on readable numbers. */
+/**
+ * Shared y-axis scale: a rounded ceiling so gridlines land on readable numbers.
+ *
+ * The steps are deliberately fine. A coarse 1/2/5/10 ladder rounds 2.5 up to 5,
+ * which puts a ₹25,000 maximum on a ₹50,000 axis and leaves the whole chart
+ * drawn in its bottom half — the shape is still correct but half the height is
+ * wasted and the differences between months stop being visible.
+ */
 private fun niceCeiling(max: Double): Double {
     if (max <= 0.0) return 100.0
     val magnitude = Math.pow(10.0, Math.floor(Math.log10(max)))
     val normalised = max / magnitude
-    val step = when {
-        normalised <= 1.0 -> 1.0
-        normalised <= 2.0 -> 2.0
-        normalised <= 5.0 -> 5.0
-        else -> 10.0
-    }
+    val step = listOf(1.0, 1.2, 1.5, 2.0, 2.5, 3.0, 4.0, 5.0, 6.0, 8.0, 10.0)
+        .first { it >= normalised - 1e-9 }
     return step * magnitude
 }
 
@@ -309,6 +314,15 @@ fun MonthlyColumns(
                     topLeft = Offset(left, plotBottom - barHeight),
                     size = Size(barWidth, barHeight),
                     cornerRadius = radius
+                )
+                // Square off the baseline end. Only the data end is rounded —
+                // a bar rounded at the bottom too reads as floating above the
+                // axis rather than growing out of it.
+                val corner = radius.y.coerceAtMost(barHeight)
+                drawRect(
+                    color = fill,
+                    topLeft = Offset(left, plotBottom - corner),
+                    size = Size(barWidth, corner)
                 )
                 drawLabel(
                     measurer, shortMoney(value),
