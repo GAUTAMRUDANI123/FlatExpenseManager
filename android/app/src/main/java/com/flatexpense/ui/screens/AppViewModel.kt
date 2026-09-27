@@ -32,6 +32,8 @@ import com.flatexpense.data.api.TransferAdminRequest
 import com.flatexpense.data.api.UpdateCategoryRequest
 import com.flatexpense.data.api.UpdateExpenseRequest
 import com.flatexpense.data.api.UpdateMemberRequest
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +53,9 @@ data class Async<T>(
     val data: T? = null,
     val error: String? = null
 )
+
+/** Long enough that a typed word is one request, short enough to feel live. */
+private const val SEARCH_DEBOUNCE_MS = 300L
 
 data class ToastMessage(val text: String, val id: Long = System.nanoTime())
 
@@ -289,27 +294,34 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private var statusFilter: String? = null
 
     fun loadExpenses(status: String? = statusFilter) {
-        val id = groupId().takeIf { it > 0 } ?: return
         statusFilter = status
+        viewModelScope.launch { fetchExpenses(status) }
+    }
+
+    /**
+     * The fetch itself, so a caller that needs to cancel it — the search box —
+     * can own the coroutine rather than firing one that outlives the keystroke
+     * that started it.
+     */
+    private suspend fun fetchExpenses(status: String? = statusFilter) {
+        val id = groupId().takeIf { it > 0 } ?: return
         val term = _search.value.trim().ifBlank { null }
-        viewModelScope.launch {
-            _expenses.value = _expenses.value.copy(loading = true, error = null)
-            repo.call {
-                it.expenses(
-                    id,
-                    status = status,
-                    // Search is global on purpose: looking for "that big
-                    // electricity bill" is exactly the case where you do not
-                    // know which month it was in, so restricting it to the
-                    // selected month would hide the answer.
-                    month = if (term == null) _month.value else null,
-                    query = term
-                )
-            }.fold(
-                onSuccess = { _expenses.value = Async(data = it.expenses) },
-                onFailure = { _expenses.value = Async(error = it.message) }
+        _expenses.value = _expenses.value.copy(loading = true, error = null)
+        repo.call {
+            it.expenses(
+                id,
+                status = status,
+                // Search is global on purpose: looking for "that big
+                // electricity bill" is exactly the case where you do not know
+                // which month it was in, so restricting it to the selected
+                // month would hide the answer.
+                month = if (term == null) _month.value else null,
+                query = term
             )
-        }
+        }.fold(
+            onSuccess = { _expenses.value = Async(data = it.expenses) },
+            onFailure = { _expenses.value = Async(error = it.message) }
+        )
     }
 
     fun loadPending() {
@@ -425,10 +437,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Typing filters the list; an empty box means no search term is sent. */
+    private var searchJob: Job? = null
+
+    /**
+     * Typing filters the list; an empty box means no search term is sent.
+     *
+     * Firing a request per keystroke raced badly: typing "rent" issued four
+     * searches, and the reply to "r" — which matches nearly every row — could
+     * land after the reply to "rent" and overwrite it, leaving the list
+     * showing results for a prefix the user had already finished typing.
+     * Cancelling the previous job makes the newest query the only one that can
+     * write, and the short wait means an ordinary word costs one request
+     * rather than four.
+     */
     fun setSearch(value: String) {
         _search.value = value
-        loadExpenses()
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            fetchExpenses()
+        }
     }
 
     // -- actions ------------------------------------------------------------
