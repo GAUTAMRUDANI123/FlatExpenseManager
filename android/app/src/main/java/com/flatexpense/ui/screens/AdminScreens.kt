@@ -2,6 +2,8 @@ package com.flatexpense.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -21,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -44,6 +47,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.flatexpense.data.api.MemberDto
+import com.flatexpense.ui.common.CategoryAvatar
 import com.flatexpense.ui.common.EmptyBox
 import com.flatexpense.ui.common.ErrorBox
 import com.flatexpense.ui.common.LoadingBox
@@ -474,12 +478,14 @@ private fun MonthClosingCard(viewModel: AppViewModel) {
 // Categories (Admin) — section 8
 // ---------------------------------------------------------------------------
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun CategoriesScreen(viewModel: AppViewModel) {
     val state by viewModel.categories.collectAsStateWithLifecycle()
     val session by viewModel.session.collectAsStateWithLifecycle()
     var adding by remember { mutableStateOf(false) }
     var newName by remember { mutableStateOf("") }
+    var newParentId by remember { mutableStateOf<Long?>(null) }
 
     LaunchedEffect(Unit) { viewModel.loadCategories(includeInactive = true) }
 
@@ -505,11 +511,32 @@ fun CategoriesScreen(viewModel: AppViewModel) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 12.dp),
+                            // Sub-categories are indented and carry their
+                            // icon; headings sit flush left in a heavier
+                            // weight, so the shape of the tree is visible
+                            // without drawing any lines.
+                            .padding(
+                                start = if (category.isHeading) 0.dp else 20.dp,
+                                top = 12.dp,
+                                bottom = 12.dp
+                            ),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        if (!category.isHeading) {
+                            CategoryAvatar(
+                                slug = category.icon,
+                                name = category.name,
+                                size = 28.dp
+                            )
+                            Spacer(Modifier.width(10.dp))
+                        }
                         Column(Modifier.weight(1f)) {
-                            Text(category.name, style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                text = category.name,
+                                style = if (category.isHeading)
+                                    MaterialTheme.typography.titleSmall
+                                else MaterialTheme.typography.bodyLarge
+                            )
                             if (!category.isActive) {
                                 Text(
                                     text = "Hidden from new expenses",
@@ -538,19 +565,46 @@ fun CategoriesScreen(viewModel: AppViewModel) {
             onDismissRequest = { adding = false },
             title = { Text("New category") },
             text = {
-                OutlinedTextField(
-                    value = newName,
-                    onValueChange = { newName = it },
-                    label = { Text("Name") },
-                    singleLine = true
-                )
+                Column {
+                    OutlinedTextField(
+                        value = newName,
+                        onValueChange = { newName = it },
+                        label = { Text("Name") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        text = "Put it under",
+                        style = MaterialTheme.typography.labelLarge
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // "Nowhere" makes it a heading of its own. Only
+                        // existing headings are offered, since the tree is one
+                        // level deep and the server refuses anything deeper.
+                        FilterChip(
+                            selected = newParentId == null,
+                            onClick = { newParentId = null },
+                            label = { Text("Nothing — it's a heading") }
+                        )
+                        categories.filter { it.isHeading }.forEach { heading ->
+                            FilterChip(
+                                selected = newParentId == heading.id,
+                                onClick = { newParentId = heading.id },
+                                label = { Text(heading.name) }
+                            )
+                        }
+                    }
+                }
             },
             confirmButton = {
                 TextButton(
                     onClick = {
-                        viewModel.addCategory(newName)
+                        viewModel.addCategory(newName, newParentId)
                         adding = false
                         newName = ""
+                        newParentId = null
                     },
                     enabled = newName.isNotBlank()
                 ) { Text("Add") }

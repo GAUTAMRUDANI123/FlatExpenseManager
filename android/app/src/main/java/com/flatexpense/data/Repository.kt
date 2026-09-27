@@ -75,6 +75,16 @@ class Repository(context: Context) {
     suspend fun <T> call(block: suspend (ApiService) -> T): Result<T> = try {
         Result.success(block(service()))
     } catch (e: HttpException) {
+        // A 401 means the stored token is no longer good for anything — it has
+        // expired, or the account behind it is gone. Every screen would
+        // otherwise show its own dead end with a Try again button that can
+        // never succeed, so the credential is dropped here and the app falls
+        // back to the login screen, which is the only thing that can actually
+        // fix it.
+        if (e.code() == 401) {
+            sessionStore.signOut()
+            invalidate()
+        }
         Result.failure(ApiException(e.readMessage()))
     } catch (e: IOException) {
         Result.failure(

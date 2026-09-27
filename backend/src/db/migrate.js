@@ -21,6 +21,41 @@ const mysql = require('mysql2/promise');
 
 const SCHEMA_PATH = path.join(__dirname, '..', '..', 'sql', 'schema.sql');
 
+/**
+ * Columns added to a table that already exists.
+ *
+ * schema.sql is written with CREATE TABLE IF NOT EXISTS, which does exactly
+ * nothing to a table that is already there — so a column added to the file
+ * after someone has run it would never reach their database. Each entry here
+ * is checked against information_schema first, making the whole step
+ * re-runnable.
+ */
+const COLUMN_ADDITIONS = [
+  {
+    table: 'categories',
+    column: 'parent_id',
+    ddl:
+      'ALTER TABLE categories ' +
+      'ADD COLUMN parent_id BIGINT UNSIGNED NULL AFTER group_id, ' +
+      'ADD CONSTRAINT fk_cat_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL, ' +
+      'ADD INDEX idx_cat_parent (group_id, parent_id, sort_order)'
+  }
+];
+
+async function applyColumnAdditions(connection, database) {
+  for (const { table, column, ddl } of COLUMN_ADDITIONS) {
+    const [rows] = await connection.query(
+      `SELECT 1 FROM information_schema.columns
+        WHERE table_schema = ? AND table_name = ? AND column_name = ?`,
+      [database, table, column]
+    );
+    if (rows.length === 0) {
+      console.log(`  adding ${table}.${column}`);
+      await connection.query(`USE \`${database}\`; ${ddl}`);
+    }
+  }
+}
+
 async function main() {
   const schema = fs.readFileSync(SCHEMA_PATH, 'utf8');
   const database = process.env.DB_NAME || 'flat_expense_manager';
@@ -38,6 +73,7 @@ async function main() {
   try {
     console.log(`Applying ${path.relative(process.cwd(), SCHEMA_PATH)} ...`);
     await connection.query(schema);
+    await applyColumnAdditions(connection, database);
 
     const [tables] = await connection.query(
       `SELECT table_name AS name, table_rows AS approx_rows

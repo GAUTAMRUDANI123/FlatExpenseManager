@@ -74,7 +74,14 @@ interface ApiService {
         @Path("groupId") groupId: Long,
         @Query("status") status: String? = null,
         @Query("month") month: String? = null,
+        /** A heading includes everything filed under it. */
         @Query("categoryId") categoryId: Long? = null,
+        @Query("paidBy") paidBy: Long? = null,
+        @Query("minAmount") minAmount: String? = null,
+        @Query("maxAmount") maxAmount: String? = null,
+        /** An explicit range; supplying either one overrides `month`. */
+        @Query("from") from: String? = null,
+        @Query("to") to: String? = null,
         /** Free text over description, category and payer name. */
         @Query("q") query: String? = null,
         @Query("limit") limit: Int = 100

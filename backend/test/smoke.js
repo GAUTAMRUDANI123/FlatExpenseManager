@@ -93,7 +93,22 @@ async function main() {
   // --- add expense ----------------------------------------------------------
   console.log('\nAdd expense (section 5, Table 3)');
   const cats = await call('GET', `/api/groups/${groupId}/categories`, { token: gautamToken });
-  check('categories seeded from section 8', cats.body.categories.length === 12);
+  // Section 8's list, now arranged as headings with sub-categories beneath.
+  const headings = cats.body.categories.filter((c) => c.parentId === null);
+  check('categories are seeded', cats.body.categories.length > 12, String(cats.body.categories.length));
+  check('they form headings with children', headings.length in { 4: 1, 5: 1, 6: 1 }, `${headings.length} headings`);
+  check(
+    'every sub-category points at a real heading',
+    cats.body.categories
+      .filter((c) => c.parentId !== null)
+      .every((c) => headings.some((h) => h.id === c.parentId))
+  );
+  check(
+    'nesting is only one level deep',
+    cats.body.categories
+      .filter((c) => c.parentId !== null)
+      .every((c) => headings.find((h) => h.id === c.parentId)?.parentId === null)
+  );
   const grocery = cats.body.categories.find((c) => c.name === 'Grocery');
 
   const created = await call('POST', `/api/groups/${groupId}/expenses`, {

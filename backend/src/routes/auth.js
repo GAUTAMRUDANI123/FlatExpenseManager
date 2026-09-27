@@ -11,7 +11,7 @@ const {
   requireEmail,
   requirePassword
 } = require('../middleware/validate');
-const { DEFAULT_CATEGORIES } = require('../services/categories');
+const { seedCategories } = require('../services/categories');
 
 const router = express.Router();
 
@@ -73,11 +73,7 @@ router.post(
         );
 
         // Section 8's starter list, so a new flat is usable immediately.
-        const values = DEFAULT_CATEGORIES.map((c, index) => [groupId, c.name, c.icon, index]);
-        await conn.query(
-          'INSERT INTO categories (group_id, name, icon, sort_order) VALUES ?',
-          [values]
-        );
+        await seedCategories(conn, groupId);
 
         group = { id: groupId, name: groupName, adminId: userId, isAdmin: true };
       }

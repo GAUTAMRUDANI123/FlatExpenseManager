@@ -64,11 +64,16 @@ data class MeResponse(
 @Serializable
 data class CategoryDto(
     val id: Long,
+    /** Null for a heading; otherwise the heading this sits under. */
+    val parentId: Long? = null,
+    val parentName: String? = null,
     val name: String,
     val icon: String? = null,
     val isActive: Boolean = true,
     val sortOrder: Int = 0
-)
+) {
+    val isHeading: Boolean get() = parentId == null
+}
 
 @Serializable
 data class CategoriesResponse(val categories: List<CategoryDto>)
@@ -283,7 +288,8 @@ data class CreateMemberRequest(
 @Serializable
 data class CreateCategoryRequest(
     val name: String,
-    val icon: String? = null
+    val icon: String? = null,
+    val parentId: Long? = null
 )
 
 @Serializable

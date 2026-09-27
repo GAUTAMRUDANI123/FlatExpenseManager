@@ -12,7 +12,7 @@ require('dotenv').config();
 
 const bcrypt = require('bcryptjs');
 const { pool, withTransaction } = require('./pool');
-const { DEFAULT_CATEGORIES } = require('../services/categories');
+const { seedCategories } = require('../services/categories');
 
 const GROUP_NAME = 'Flat 302, Sunrise Apartments';
 const PASSWORD = 'password123';
@@ -77,10 +77,8 @@ async function main() {
       ]);
     }
 
-    // Categories from section 8
-    await conn.query('INSERT INTO categories (group_id, name, icon, sort_order) VALUES ?', [
-      DEFAULT_CATEGORIES.map((c, i) => [groupId, c.name, c.icon, i])
-    ]);
+    // Categories from section 8, as a one-level tree
+    await seedCategories(conn, groupId);
     const [categories] = await conn.query(
       'SELECT id, name FROM categories WHERE group_id = ?',
       [groupId]
@@ -134,7 +132,7 @@ async function main() {
         status: 'approved'
       },
       {
-        category: 'Milk',
+        category: 'Milk & Dairy',
         description: 'Milk for the week',
         amount: '420.00',
         paid: 'Anjali',
@@ -192,7 +190,7 @@ async function main() {
     // charts open empty on a fresh install, which makes them look broken
     // rather than new.
     const history = [
-      { back: 5, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '4100.00', 'Gautam'], ['Electricity', 'Electricity', '1980.00', 'Rahul'], ['Milk', 'Milk', '1250.00', 'Anjali']] },
+      { back: 5, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '4100.00', 'Gautam'], ['Electricity', 'Electricity', '1980.00', 'Rahul'], ['Milk & Dairy', 'Milk', '1250.00', 'Anjali']] },
       { back: 4, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '3750.00', 'Priya'], ['Electricity', 'Electricity', '2260.00', 'Rahul'], ['Internet', 'Broadband', '1199.00', 'Priya']] },
       { back: 3, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '4980.00', 'Gautam'], ['Gas', 'Gas cylinder', '1150.00', 'Vikram'], ['Cleaning', 'Cleaner', '1800.00', 'Anjali']] },
       { back: 2, rows: [['Rent', 'Rent', '12000.00', 'Rahul'], ['Grocery', 'Groceries', '3420.00', 'Anjali'], ['Electricity', 'Electricity', '3100.00', 'Rahul'], ['Water', 'Water tanker', '900.00', 'Vikram']] },

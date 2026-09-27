@@ -149,14 +149,50 @@ fun AddExpenseScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            // Grouped by heading. Twenty-five chips in one undifferentiated
+            // run is a wall to read through; under headings it is five short
+            // lists and the eye goes straight to the right one.
             Text("Category", style = MaterialTheme.typography.labelLarge)
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                categories.forEach { category ->
+            val headings = categories.filter { it.isHeading }
+            headings.forEach { heading ->
+                Text(
+                    text = heading.name,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp, bottom = 2.dp)
+                )
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    // The heading is offered too, for the shop trip that is
+                    // simply "groceries" and does not split into one of its
+                    // sub-categories.
                     FilterChip(
-                        selected = category.id == categoryId,
-                        onClick = { categoryId = category.id },
-                        label = { Text(category.name) }
+                        selected = heading.id == categoryId,
+                        onClick = { categoryId = heading.id },
+                        label = { Text(heading.name) }
                     )
+                    categories.filter { it.parentId == heading.id }.forEach { child ->
+                        FilterChip(
+                            selected = child.id == categoryId,
+                            onClick = { categoryId = child.id },
+                            label = { Text(child.name) }
+                        )
+                    }
+                }
+            }
+            // Anything left over: a category added before the tree existed, or
+            // one whose heading was deleted out from under it.
+            val orphans = categories.filter {
+                !it.isHeading && headings.none { h -> h.id == it.parentId }
+            }
+            if (orphans.isNotEmpty()) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    orphans.forEach { category ->
+                        FilterChip(
+                            selected = category.id == categoryId,
+                            onClick = { categoryId = category.id },
+                            label = { Text(category.name) }
+                        )
+                    }
                 }
             }
 

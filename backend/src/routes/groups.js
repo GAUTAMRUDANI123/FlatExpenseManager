@@ -10,6 +10,7 @@ const {
   optionalString,
   requireAmount,
   requireId,
+  optionalId,
   optionalDate,
   todayIso,
   normaliseMonth,
@@ -194,16 +195,23 @@ router.get(
   asyncHandler(async (req, res) => {
     const includeInactive = req.query.includeInactive === '1';
     const [rows] = await pool.query(
-      `SELECT id, name, icon, is_active, sort_order
-         FROM categories
-        WHERE group_id = ? ${includeInactive ? '' : 'AND is_active = 1'}
-        ORDER BY sort_order ASC, name ASC`,
+      `SELECT c.id, c.parent_id, c.name, c.icon, c.is_active, c.sort_order,
+              p.name AS parent_name
+         FROM categories c
+         LEFT JOIN categories p ON p.id = c.parent_id
+        WHERE c.group_id = ? ${includeInactive ? '' : 'AND c.is_active = 1'}
+        ORDER BY c.sort_order ASC, c.name ASC`,
       [req.group.id]
     );
 
+    // Sent flat with parentId rather than as a nested structure: the client
+    // groups for display, and a flat list keeps the picker, the filter and the
+    // admin screen reading the same shape.
     res.json({
       categories: rows.map((r) => ({
         id: Number(r.id),
+        parentId: r.parent_id === null ? null : Number(r.parent_id),
+        parentName: r.parent_name,
         name: r.name,
         icon: r.icon,
         isActive: r.is_active === 1,
@@ -220,6 +228,7 @@ router.post(
   asyncHandler(async (req, res) => {
     const name = requireString(req.body, 'name', { max: 80 });
     const icon = optionalString(req.body, 'icon', { max: 40 });
+    const parentId = optionalId(req.body, 'parentId');
 
     const [dupe] = await pool.query(
       'SELECT id FROM categories WHERE group_id = ? AND name = ?',
@@ -227,18 +236,38 @@ router.post(
     );
     if (dupe.length > 0) throw new ApiError(409, 'That category already exists');
 
+    if (parentId !== null) {
+      const [parent] = await pool.query(
+        'SELECT id, parent_id FROM categories WHERE id = ? AND group_id = ?',
+        [parentId, req.group.id]
+      );
+      if (parent.length === 0) throw new ApiError(400, 'That parent category does not exist');
+      // One level only. Deeper nesting would turn every category total into a
+      // recursive query for a flat that has around twenty of them.
+      if (parent[0].parent_id !== null) {
+        throw new ApiError(400, 'A sub-category cannot sit under another sub-category');
+      }
+    }
+
     const [maxRow] = await pool.query(
       'SELECT COALESCE(MAX(sort_order), -1) + 1 AS next FROM categories WHERE group_id = ?',
       [req.group.id]
     );
 
     const [result] = await pool.query(
-      'INSERT INTO categories (group_id, name, icon, sort_order) VALUES (?, ?, ?, ?)',
-      [req.group.id, name, icon, maxRow[0].next]
+      'INSERT INTO categories (group_id, parent_id, name, icon, sort_order) VALUES (?, ?, ?, ?, ?)',
+      [req.group.id, parentId, name, icon, maxRow[0].next]
     );
 
     res.status(201).json({
-      category: { id: result.insertId, name, icon, isActive: true, sortOrder: maxRow[0].next }
+      category: {
+        id: result.insertId,
+        parentId,
+        name,
+        icon,
+        isActive: true,
+        sortOrder: maxRow[0].next
+      }
     });
   })
 );
@@ -539,13 +568,16 @@ router.get(
       where.push(`e.status IN (${statuses.map(() => '?').join(',')})`);
       params.push(...statuses);
     }
-    if (req.query.month) {
+    // An explicit from/to range wins over the month: the two together would
+    // intersect to nothing whenever the range crossed a month boundary, which
+    // is exactly when someone reaches for a range in the first place.
+    const hasRange = Boolean(req.query.from || req.query.to);
+    if (req.query.month && !hasRange) {
       const month = normaliseMonth(req.query.month, currentMonth());
       where.push('e.expense_date >= ? AND e.expense_date < DATE_ADD(?, INTERVAL 1 MONTH)');
       params.push(month, month);
     }
     for (const [param, column] of [
-      ['categoryId', 'e.category_id'],
       ['paidBy', 'e.paid_by'],
       ['splitTo', 'e.split_to']
     ]) {
@@ -553,6 +585,44 @@ router.get(
         const value = Number(req.query[param]);
         if (!Number.isInteger(value) || value <= 0) throw new ApiError(400, `Invalid ${param}`);
         where.push(`${column} = ?`);
+        params.push(value);
+      }
+    }
+
+    /**
+     * Filtering by a heading includes everything beneath it. Picking "Grocery"
+     * and being shown nothing, because every actual expense is filed under
+     * Vegetables or Staples, would make the parent categories look broken.
+     */
+    if (req.query.categoryId) {
+      const categoryId = Number(req.query.categoryId);
+      if (!Number.isInteger(categoryId) || categoryId <= 0) {
+        throw new ApiError(400, 'Invalid categoryId');
+      }
+      where.push(
+        `(e.category_id = ? OR e.category_id IN
+            (SELECT id FROM categories WHERE parent_id = ? AND group_id = ?))`
+      );
+      params.push(categoryId, categoryId, req.group.id);
+    }
+
+    // Amount range. Compared as DECIMAL so the bounds never go near a float.
+    for (const [param, op] of [['minAmount', '>='], ['maxAmount', '<=']]) {
+      if (req.query[param]) {
+        const value = Number(req.query[param]);
+        if (!Number.isFinite(value) || value < 0) throw new ApiError(400, `Invalid ${param}`);
+        where.push(`e.amount ${op} CAST(? AS DECIMAL(12,2))`);
+        params.push(value.toFixed(2));
+      }
+    }
+
+    // An explicit from/to range, for when a whole month is the wrong window.
+    // Supplying either one overrides the month filter above.
+    for (const [param, op] of [['from', '>='], ['to', '<=']]) {
+      if (req.query[param]) {
+        const value = optionalDate(req.query, param, null);
+        if (value === null) throw new ApiError(400, `${param} must be in YYYY-MM-DD format`);
+        where.push(`e.expense_date ${op} ?`);
         params.push(value);
       }
     }
@@ -655,10 +725,15 @@ router.get(
           ORDER BY total DESC`,
         [...monthRange, groupId]
       ),
+      // Scoped to the selected month like every other figure on this screen.
+      // Unscoped, it showed August rows under a September heading, which reads
+      // as September to anyone not studying the dates.
       pool.query(
-        `${EXPENSE_SELECT} WHERE e.group_id = ?
-         ORDER BY e.created_at DESC, e.id DESC LIMIT 10`,
-        [groupId]
+        `${EXPENSE_SELECT}
+          WHERE e.group_id = ?
+            AND e.expense_date >= ? AND e.expense_date < DATE_ADD(?, INTERVAL 1 MONTH)
+          ORDER BY e.created_at DESC, e.id DESC LIMIT 10`,
+        [groupId, month, month]
       ),
       pool.query(
         `SELECT u.id, u.name,

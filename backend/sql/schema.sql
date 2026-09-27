@@ -54,16 +54,31 @@ CREATE TABLE IF NOT EXISTS group_members (
 -- ---------------------------------------------------------------------------
 -- categories — scoped to a group so one flat's edits cannot touch another's
 -- ---------------------------------------------------------------------------
+-- parent_id gives one level of nesting: Grocery is a heading with Vegetables,
+-- Fruits and the rest beneath it. Only one level is allowed, enforced in the
+-- route rather than the schema — a tree of arbitrary depth would make every
+-- total a recursive query for a flat that has about twenty categories.
+--
+-- A parent stays selectable. Plenty of shopping is just "Grocery", and forcing
+-- a sub-category for it would push people towards whichever child was least
+-- wrong.
+--
+-- ON DELETE SET NULL, not CASCADE: removing a heading should orphan its
+-- children to the top level, never silently delete categories that expenses
+-- still point at.
 CREATE TABLE IF NOT EXISTS categories (
   id         BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
   group_id   BIGINT UNSIGNED NOT NULL,
+  parent_id  BIGINT UNSIGNED NULL,
   name       VARCHAR(80) NOT NULL,
   icon       VARCHAR(40) NULL,
   is_active  TINYINT(1)  NOT NULL DEFAULT 1,
   sort_order INT         NOT NULL DEFAULT 0,
   created_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
   UNIQUE KEY uq_category_name (group_id, name),
-  CONSTRAINT fk_cat_group FOREIGN KEY (group_id) REFERENCES `groups`(id) ON DELETE CASCADE
+  CONSTRAINT fk_cat_group  FOREIGN KEY (group_id)  REFERENCES `groups`(id) ON DELETE CASCADE,
+  CONSTRAINT fk_cat_parent FOREIGN KEY (parent_id) REFERENCES categories(id) ON DELETE SET NULL,
+  INDEX idx_cat_parent (group_id, parent_id, sort_order)
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------------

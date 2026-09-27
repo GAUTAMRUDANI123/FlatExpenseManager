@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -18,6 +19,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.BorderStroke
@@ -75,9 +77,17 @@ fun ExpenseListScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Unit) {
     val state by viewModel.expenses.collectAsStateWithLifecycle()
     val month by viewModel.month.collectAsStateWithLifecycle()
     val search by viewModel.search.collectAsStateWithLifecycle()
+    val filters by viewModel.filters.collectAsStateWithLifecycle()
     var filter by remember { mutableStateOf<String?>(null) }
+    var showFilters by remember { mutableStateOf(false) }
 
     val searching = search.isNotBlank()
+
+    // The sheet needs both lists to show anything useful.
+    LaunchedEffect(Unit) {
+        viewModel.loadMembers()
+        viewModel.loadCategories()
+    }
 
     LaunchedEffect(filter, month) { viewModel.loadExpenses(filter) }
 
@@ -104,31 +114,81 @@ fun ExpenseListScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Unit) {
         // The month control is hidden while searching, because search
         // deliberately looks across every month — leaving it on screen would
         // suggest it still narrows the results.
-        if (!searching) {
-            MonthSelector(
-                month = month,
-                onPrevious = { viewModel.shiftMonth(-1) },
-                onNext = { viewModel.shiftMonth(1) }
-            )
-        } else {
-            Text(
+        // The month control is hidden whenever something else decides the
+        // window — a search looks across every month, and an explicit date
+        // range replaces it — because leaving it on screen would suggest it
+        // still narrows the results.
+        when {
+            searching -> Text(
                 text = "Searching every month",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
             )
+            filters.hasDateRange -> Text(
+                text = listOfNotNull(
+                    filters.from?.let { "From ${formatDate(it)}" },
+                    filters.to?.let { "to ${formatDate(it)}" }
+                ).joinToString(" "),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
+            else -> MonthSelector(
+                month = month,
+                onPrevious = { viewModel.shiftMonth(-1) },
+                onNext = { viewModel.shiftMonth(1) }
+            )
         }
 
-        FlowRow(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            STATUS_FILTERS.forEach { (value, label) ->
-                FilterChip(
-                    selected = filter == value,
-                    onClick = { filter = value },
-                    label = { Text(label) }
+            FlowRow(
+                modifier = Modifier.weight(1f),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                STATUS_FILTERS.forEach { (value, label) ->
+                    FilterChip(
+                        selected = filter == value,
+                        onClick = { filter = value },
+                        label = { Text(label) }
+                    )
+                }
+            }
+            Spacer(Modifier.width(8.dp))
+            // The count is on the button because the filters themselves live
+            // in a sheet: without it there is nothing on screen to say why the
+            // list is short.
+            FilterChip(
+                selected = filters.active > 0,
+                onClick = { showFilters = true },
+                leadingIcon = {
+                    Icon(
+                        Icons.Filled.FilterList,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                },
+                label = { Text(if (filters.active > 0) "${filters.active}" else "Filter") }
+            )
+        }
+
+        if (filters.active > 0) {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (filters.hasDateRange) "Filtered · custom dates"
+                    else "Filtered",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                TextButton(onClick = viewModel::clearFilters) { Text("Clear") }
             }
         }
 
@@ -138,6 +198,11 @@ fun ExpenseListScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Unit) {
             state.error != null && expenses.isEmpty() ->
                 ErrorBox(state.error!!, onRetry = { viewModel.loadExpenses(filter) })
             expenses.isEmpty() && searching -> EmptyBox("Nothing matches \"$search\".")
+            // Naming the filters matters: an empty list with a filter quietly
+            // applied reads as "there is nothing here" rather than "you have
+            // narrowed it to nothing".
+            expenses.isEmpty() && filters.active > 0 ->
+                EmptyBox("No expenses match these filters.", icon = Icons.Filled.FilterList)
             expenses.isEmpty() -> EmptyBox("No expenses for this month.")
             else -> LazyColumn(contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 96.dp)) {
                 items(expenses, key = { it.id }) { expense ->
@@ -146,6 +211,10 @@ fun ExpenseListScreen(viewModel: AppViewModel, onOpenExpense: (Long) -> Unit) {
                 }
             }
         }
+    }
+
+    if (showFilters) {
+        ExpenseFilterSheet(viewModel = viewModel, onDismiss = { showFilters = false })
     }
 }
 

@@ -57,6 +57,28 @@ data class Async<T>(
 /** Long enough that a typed word is one request, short enough to feel live. */
 private const val SEARCH_DEBOUNCE_MS = 300L
 
+/**
+ * Everything narrowing the expense list besides the status chips, which
+ * predate this and stay where they are.
+ *
+ * Held as one object so the list has a single source of truth: with each
+ * filter owning its own state the screen could easily send four of them and
+ * forget the fifth.
+ */
+data class ExpenseFilters(
+    val paidBy: Long? = null,
+    val categoryId: Long? = null,
+    val minAmount: String? = null,
+    val maxAmount: String? = null,
+    val from: String? = null,
+    val to: String? = null
+) {
+    val active: Int
+        get() = listOf(paidBy, categoryId, minAmount, maxAmount, from, to).count { it != null }
+
+    val hasDateRange: Boolean get() = from != null || to != null
+}
+
 data class ToastMessage(val text: String, val id: Long = System.nanoTime())
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
@@ -111,6 +133,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** Free-text expense search. Empty means "no search applied". */
     private val _search = MutableStateFlow("")
     val search: StateFlow<String> = _search.asStateFlow()
+
+    private val _filters = MutableStateFlow(ExpenseFilters())
+    val filters: StateFlow<ExpenseFilters> = _filters.asStateFlow()
 
     private val _toast = MutableStateFlow<ToastMessage?>(null)
     val toast: StateFlow<ToastMessage?> = _toast.asStateFlow()
@@ -306,6 +331,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun fetchExpenses(status: String? = statusFilter) {
         val id = groupId().takeIf { it > 0 } ?: return
         val term = _search.value.trim().ifBlank { null }
+        val f = _filters.value
         _expenses.value = _expenses.value.copy(loading = true, error = null)
         repo.call {
             it.expenses(
@@ -314,8 +340,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // Search is global on purpose: looking for "that big
                 // electricity bill" is exactly the case where you do not know
                 // which month it was in, so restricting it to the selected
-                // month would hide the answer.
-                month = if (term == null) _month.value else null,
+                // month would hide the answer. An explicit date range does the
+                // same, since the user has said which window they want.
+                month = if (term == null && !f.hasDateRange) _month.value else null,
+                categoryId = f.categoryId,
+                paidBy = f.paidBy,
+                minAmount = f.minAmount,
+                maxAmount = f.maxAmount,
+                from = f.from,
+                to = f.to,
                 query = term
             )
         }.fold(
@@ -435,6 +468,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 onFailure = { _months.value = Async(error = it.message) }
             )
         }
+    }
+
+    fun setFilters(value: ExpenseFilters) {
+        _filters.value = value
+        loadExpenses()
+    }
+
+    fun clearFilters() {
+        _filters.value = ExpenseFilters()
+        loadExpenses()
     }
 
     private var searchJob: Job? = null
@@ -617,10 +660,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    fun addCategory(name: String) {
+    fun addCategory(name: String, parentId: Long? = null) {
         val id = groupId().takeIf { it > 0 } ?: return
         viewModelScope.launch {
-            repo.call { it.addCategory(id, CreateCategoryRequest(name.trim())) }.fold(
+            repo.call {
+                it.addCategory(id, CreateCategoryRequest(name.trim(), parentId = parentId))
+            }.fold(
                 onSuccess = {
                     notify("Category added")
                     loadCategories(includeInactive = true)
