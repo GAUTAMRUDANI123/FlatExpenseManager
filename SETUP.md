@@ -237,9 +237,33 @@ Restore with:
 mysql -u root -p flat_expense_manager < backend/backups/<file>.sql
 ```
 
+## Close signup once your flat exists
+
+Registration is open so the very first flat can be created. After that the
+Admin adds each flatmate from the Members screen, so nothing needs the signup
+form any more — and leaving it open on a published API means anyone who finds
+the address can create accounts and groups in your database.
+
+They could not read your flat's data. Every group-scoped route checks
+membership, and a stranger who registers gets their own empty flat and a 403
+on everything of yours. But a signup form nobody needs is still a signup form
+on the public internet.
+
+Once your five flatmates have accounts, set this in `.env` and restart:
+
+```
+ALLOW_REGISTRATION=false
+```
+
+Existing sign-ins keep working, and the Admin can still add flatmates. Only
+the "Create a new flat" path is refused, with a message telling the person to
+ask their Admin.
+
 ## Before you trust it with real money
 
 - [ ] `JWT_SECRET` is the random 96-character string, not `change-me`
+- [ ] `ALLOW_REGISTRATION=false`, now that the flat exists
+- [ ] `BACKUP_COPY_TO` points somewhere off this laptop
 - [ ] Seed accounts deleted, or every password changed
 - [ ] The app connects to `https://`, never `http://`
 - [ ] Everyone has changed their temporary password

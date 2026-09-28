@@ -34,9 +34,31 @@ function publicUser(row) {
  * account bootstraps a group. Everyone else is added by the Admin from the
  * Members screen, which keeps the group closed to five known people.
  */
+/**
+ * Open signup is only needed once, to create the very first flat. After that
+ * the Admin adds each flatmate from the Members screen, so leaving it open on
+ * a published API just lets anyone who finds the address create unlimited
+ * accounts and groups in someone else's database.
+ *
+ * They could never read the flat's data — every group-scoped route checks
+ * membership, and a stranger gets 403 — but a signup form on the public
+ * internet that nobody needs is still a signup form on the public internet.
+ *
+ * Left unset it stays open, so a fresh install works out of the box. Set
+ * ALLOW_REGISTRATION=false once the flat exists.
+ */
+const REGISTRATION_OPEN = String(process.env.ALLOW_REGISTRATION ?? 'true') !== 'false';
+
 router.post(
   '/register',
   asyncHandler(async (req, res) => {
+    if (!REGISTRATION_OPEN) {
+      throw new ApiError(
+        403,
+        'This server is not accepting new sign-ups. Ask your flat Admin to create your account.'
+      );
+    }
+
     const name = requireString(req.body, 'name', { max: 120 });
     const email = requireEmail(req.body);
     const phone = optionalString(req.body, 'phone', { max: 20 });
