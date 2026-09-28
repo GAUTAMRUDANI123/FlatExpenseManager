@@ -914,6 +914,147 @@ router.get(
 );
 
 // ---------------------------------------------------------------------------
+// Join requests
+// ---------------------------------------------------------------------------
+
+/**
+ * GET /api/groups/:groupId/join-requests  (Admin)
+ *
+ * Readable by the Admin only. A request carries the email the person signed up
+ * with, because that is the one detail that lets the Admin tell whether this is
+ * the flatmate they expect or a stranger who guessed the flat name.
+ */
+router.get(
+  '/:groupId/join-requests',
+  requireGroupAdmin,
+  asyncHandler(async (req, res) => {
+    const [rows] = await pool.query(
+      `SELECT jr.id, jr.status, jr.message, jr.created_at,
+              u.id AS user_id, u.name, u.email
+         FROM join_requests jr
+         JOIN users u ON u.id = jr.user_id
+        WHERE jr.group_id = ? AND jr.status = 'pending'
+        ORDER BY jr.created_at ASC`,
+      [req.group.id]
+    );
+
+    res.json({
+      requests: rows.map((r) => ({
+        id: Number(r.id),
+        userId: Number(r.user_id),
+        name: r.name,
+        email: r.email,
+        message: r.message,
+        requestedAt: r.created_at
+      }))
+    });
+  })
+);
+
+/** POST /api/groups/:groupId/join-requests/:requestId/approve  (Admin) */
+router.post(
+  '/:groupId/join-requests/:requestId/approve',
+  requireGroupAdmin,
+  asyncHandler(async (req, res) => {
+    const requestId = Number(req.params.requestId);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new ApiError(400, 'Invalid request id');
+    }
+
+    const added = await withTransaction(async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT jr.id, jr.user_id, u.name
+           FROM join_requests jr
+           JOIN users u ON u.id = jr.user_id
+          WHERE jr.id = ? AND jr.group_id = ? AND jr.status = 'pending'`,
+        [requestId, req.group.id]
+      );
+      if (rows.length === 0) throw new ApiError(404, 'No such pending request');
+      const request = rows[0];
+
+      // The cap applies here as much as it does to Add flatmate — approving is
+      // the same act by a different route, and it would be an odd back door if
+      // it let a sixth person in.
+      const [countRows] = await conn.query(
+        `SELECT COUNT(*) AS n FROM group_members
+          WHERE group_id = ? AND status = 'active' AND user_id <> ?`,
+        [req.group.id, req.group.adminId]
+      );
+      if (Number(countRows[0].n) >= MAX_GROUP_MEMBERS) {
+        throw new ApiError(
+          409,
+          `This flat already has its ${MAX_GROUP_MEMBERS} flatmates. ` +
+            'Deactivate someone before approving another.'
+        );
+      }
+
+      await conn.query(
+        `INSERT INTO group_members (group_id, user_id) VALUES (?, ?)
+         ON DUPLICATE KEY UPDATE status = 'active'`,
+        [req.group.id, request.user_id]
+      );
+      await conn.query(
+        `UPDATE join_requests
+            SET status = 'approved', decided_by = ?, decided_at = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+        [req.user.id, requestId]
+      );
+
+      await writeGroupAudit(conn, {
+        groupId: req.group.id,
+        action: 'join_approved',
+        detail: `${request.name} was approved to join`,
+        subjectId: request.user_id,
+        actorId: req.user.id
+      });
+
+      return request.name;
+    });
+
+    res.json({ ok: true, name: added });
+  })
+);
+
+/** POST /api/groups/:groupId/join-requests/:requestId/decline  (Admin) */
+router.post(
+  '/:groupId/join-requests/:requestId/decline',
+  requireGroupAdmin,
+  asyncHandler(async (req, res) => {
+    const requestId = Number(req.params.requestId);
+    if (!Number.isInteger(requestId) || requestId <= 0) {
+      throw new ApiError(400, 'Invalid request id');
+    }
+
+    await withTransaction(async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT jr.id, jr.user_id, u.name FROM join_requests jr
+           JOIN users u ON u.id = jr.user_id
+          WHERE jr.id = ? AND jr.group_id = ? AND jr.status = 'pending'`,
+        [requestId, req.group.id]
+      );
+      if (rows.length === 0) throw new ApiError(404, 'No such pending request');
+
+      await conn.query(
+        `UPDATE join_requests
+            SET status = 'declined', decided_by = ?, decided_at = CURRENT_TIMESTAMP
+          WHERE id = ?`,
+        [req.user.id, requestId]
+      );
+
+      await writeGroupAudit(conn, {
+        groupId: req.group.id,
+        action: 'join_declined',
+        detail: `${rows[0].name}'s request to join was declined`,
+        subjectId: rows[0].user_id,
+        actorId: req.user.id
+      });
+    });
+
+    res.json({ ok: true });
+  })
+);
+
+// ---------------------------------------------------------------------------
 // Month closing
 // ---------------------------------------------------------------------------
 

@@ -8,6 +8,7 @@ const { signToken, authenticate } = require('../middleware/auth');
 const {
   requireString,
   optionalString,
+  optionalId,
   requireEmail,
   requirePassword
 } = require('../middleware/validate');
@@ -64,6 +65,13 @@ router.post(
     const phone = optionalString(req.body, 'phone', { max: 20 });
     const password = requirePassword(req.body);
     const groupName = optionalString(req.body, 'groupName', { max: 120 });
+    // Asking to join an existing flat instead of starting one.
+    const joinGroupId = optionalId(req.body, 'joinGroupId');
+    const message = optionalString(req.body, 'message', { max: 255 });
+
+    if (groupName && joinGroupId) {
+      throw new ApiError(400, 'Either start a new flat or join one, not both');
+    }
 
     // Section 16: passwords are only ever stored as a hash.
     const passwordHash = await bcrypt.hash(password, 10);
@@ -72,6 +80,15 @@ router.post(
       const [existing] = await conn.query('SELECT id FROM users WHERE email = ?', [email]);
       if (existing.length > 0) {
         throw new ApiError(409, 'An account with that email already exists');
+      }
+
+      // Checked before the account is created, so a bad flat id does not leave
+      // an orphan user behind.
+      let joinTarget = null;
+      if (joinGroupId) {
+        const [g] = await conn.query('SELECT id, name FROM `groups` WHERE id = ?', [joinGroupId]);
+        if (g.length === 0) throw new ApiError(404, 'That flat does not exist');
+        joinTarget = g[0];
       }
 
       const [userResult] = await conn.query(
@@ -100,18 +117,61 @@ router.post(
         group = { id: groupId, name: groupName, adminId: userId, isAdmin: true };
       }
 
+      // Joining is a request, not a membership. Nothing is added to
+      // group_members until the Admin approves, so the account exists but sees
+      // nothing at all in the meantime.
+      let pending = null;
+      if (joinTarget) {
+        await conn.query(
+          `INSERT INTO join_requests (group_id, user_id, message) VALUES (?, ?, ?)`,
+          [joinTarget.id, userId, message]
+        );
+        pending = { groupId: Number(joinTarget.id), groupName: joinTarget.name };
+      }
+
       const [rows] = await conn.query(
         'SELECT id, name, email, phone, role, status FROM users WHERE id = ?',
         [userId]
       );
-      return { user: rows[0], group };
+      return { user: rows[0], group, pending };
     });
 
     res.status(201).json({
       token: signToken(result.user),
       user: publicUser(result.user),
-      group: result.group
+      group: result.group,
+      // Set when they asked to join rather than starting a flat. The app shows
+      // a waiting screen on this rather than dropping them into an empty app.
+      pendingJoin: result.pending
     });
+  })
+);
+
+/**
+ * GET /api/auth/flats?q=sunrise
+ *
+ * Finds a flat by name so someone signing up can pick the one they mean.
+ *
+ * Requires a search term of at least three characters and never lists
+ * everything: the point is to confirm the flat you were told about, not to
+ * browse who else uses this server. Returns the id and name only — no member
+ * count, no Admin name, nothing about the people in it. Being listed here
+ * grants nothing, since joining still needs the Admin to approve.
+ */
+router.get(
+  '/flats',
+  asyncHandler(async (req, res) => {
+    const term = String(req.query.q || '').trim();
+    if (term.length < 3) {
+      throw new ApiError(400, 'Type at least three letters of the flat name');
+    }
+    // A literal % or _ in a flat name must not act as a LIKE wildcard.
+    const escaped = term.replace(/[\\%_]/g, (ch) => `\\${ch}`);
+    const [rows] = await pool.query(
+      'SELECT id, name FROM `groups` WHERE name LIKE ? ORDER BY name LIMIT 10',
+      [`%${escaped}%`]
+    );
+    res.json({ flats: rows.map((r) => ({ id: Number(r.id), name: r.name })) });
   })
 );
 
@@ -156,6 +216,18 @@ router.get(
       [req.user.id]
     );
 
+    // Someone whose request has not been decided yet belongs to no group, so
+    // without this the app would show them an empty shell with no explanation.
+    const [pending] = await pool.query(
+      `SELECT jr.group_id, jr.status, g.name
+         FROM join_requests jr
+         JOIN \`groups\` g ON g.id = jr.group_id
+        WHERE jr.user_id = ? AND jr.status IN ('pending', 'declined')
+        ORDER BY jr.created_at DESC
+        LIMIT 1`,
+      [req.user.id]
+    );
+
     res.json({
       user: publicUser(req.user),
       groups: groups.map((g) => ({
@@ -163,7 +235,14 @@ router.get(
         name: g.name,
         adminId: Number(g.admin_id),
         isAdmin: Number(g.admin_id) === Number(req.user.id)
-      }))
+      })),
+      pendingJoin: groups.length === 0 && pending.length > 0
+        ? {
+            groupId: Number(pending[0].group_id),
+            groupName: pending[0].name,
+            status: pending[0].status
+          }
+        : null
     });
   })
 );

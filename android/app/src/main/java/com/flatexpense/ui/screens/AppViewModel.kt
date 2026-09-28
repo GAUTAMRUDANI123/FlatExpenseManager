@@ -23,6 +23,9 @@ import com.flatexpense.data.api.DashboardResponse
 import com.flatexpense.data.api.DecisionRequest
 import com.flatexpense.data.api.ExpenseDetailResponse
 import com.flatexpense.data.api.ExpenseDto
+import com.flatexpense.data.api.FlatSummaryDto
+import com.flatexpense.data.api.JoinRequestDto
+import com.flatexpense.data.api.PendingJoinDto
 import com.flatexpense.data.api.LoginRequest
 import com.flatexpense.data.api.MemberDto
 import com.flatexpense.data.api.MonthlyReportResponse
@@ -136,6 +139,20 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _filters = MutableStateFlow(ExpenseFilters())
     val filters: StateFlow<ExpenseFilters> = _filters.asStateFlow()
+
+    /**
+     * Set while a sign-up is waiting on the Admin. The account exists and the
+     * token is valid, but the person is in no flat — without this the app
+     * would drop them into an empty shell with nothing explaining why.
+     */
+    private val _pendingJoin = MutableStateFlow<PendingJoinDto?>(null)
+    val pendingJoin: StateFlow<PendingJoinDto?> = _pendingJoin.asStateFlow()
+
+    private val _flatSearch = MutableStateFlow<List<FlatSummaryDto>>(emptyList())
+    val flatSearch: StateFlow<List<FlatSummaryDto>> = _flatSearch.asStateFlow()
+
+    private val _joinRequests = MutableStateFlow(Async<List<JoinRequestDto>>())
+    val joinRequests: StateFlow<Async<List<JoinRequestDto>>> = _joinRequests.asStateFlow()
 
     private val _toast = MutableStateFlow<ToastMessage?>(null)
     val toast: StateFlow<ToastMessage?> = _toast.asStateFlow()
@@ -256,6 +273,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                         _auth.value = AuthUiState(error = "Flat was not created. Try again.")
                         return@fold
                     }
+                    _pendingJoin.value = null
                     repo.sessionStore.save(
                         token = auth.token,
                         userId = auth.user.id,
@@ -269,6 +287,141 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     refreshAll()
                 },
                 onFailure = { _auth.value = AuthUiState(error = it.message) }
+            )
+        }
+    }
+
+    private var flatSearchJob: Job? = null
+
+    /** Debounced and cancelling, for the same reason the expense search is. */
+    fun searchFlats(term: String) {
+        flatSearchJob?.cancel()
+        if (term.trim().length < 3) {
+            _flatSearch.value = emptyList()
+            return
+        }
+        flatSearchJob = viewModelScope.launch {
+            delay(SEARCH_DEBOUNCE_MS)
+            repo.call { it.findFlats(term.trim()) }.fold(
+                onSuccess = { _flatSearch.value = it.flats },
+                onFailure = { _flatSearch.value = emptyList() }
+            )
+        }
+    }
+
+    /**
+     * Signs up asking to join an existing flat. The account is created and the
+     * token is kept, but no session is stored — there is no flat to open yet,
+     * so the app shows the waiting screen instead.
+     */
+    fun requestToJoin(
+        name: String,
+        email: String,
+        password: String,
+        flat: FlatSummaryDto,
+        message: String
+    ) {
+        viewModelScope.launch {
+            _auth.value = AuthUiState(loading = true)
+            repo.invalidate()
+            repo.call {
+                it.register(
+                    RegisterRequest(
+                        name = name.trim(),
+                        email = email.trim(),
+                        password = password,
+                        joinGroupId = flat.id,
+                        message = message.trim().ifBlank { null }
+                    )
+                )
+            }.fold(
+                onSuccess = { auth ->
+                    _auth.value = AuthUiState()
+                    _pendingJoin.value = auth.pendingJoin
+                        ?: PendingJoinDto(flat.id, flat.name, "pending")
+                },
+                onFailure = { _auth.value = AuthUiState(error = it.message) }
+            )
+        }
+    }
+
+    /** Re-checks whether the Admin has decided yet. */
+    fun refreshPendingJoin(email: String, password: String) {
+        viewModelScope.launch {
+            _auth.value = AuthUiState(loading = true)
+            repo.invalidate()
+            repo.call { it.login(LoginRequest(email.trim(), password)) }.fold(
+                onSuccess = { auth ->
+                    repo.sessionStore.save(
+                        token = auth.token,
+                        userId = auth.user.id,
+                        userName = auth.user.name,
+                        groupId = 0,
+                        groupName = "",
+                        isAdmin = false
+                    )
+                    repo.invalidate()
+                    repo.call { it.me() }.fold(
+                        onSuccess = { me ->
+                            val group = me.groups.firstOrNull()
+                            if (group != null) {
+                                // Approved: the session can finally be stored.
+                                repo.sessionStore.save(
+                                    token = auth.token,
+                                    userId = me.user.id,
+                                    userName = me.user.name,
+                                    groupId = group.id,
+                                    groupName = group.name,
+                                    isAdmin = group.isAdmin
+                                )
+                                repo.invalidate()
+                                _pendingJoin.value = null
+                                _auth.value = AuthUiState()
+                                refreshAll()
+                            } else {
+                                repo.sessionStore.signOut()
+                                _pendingJoin.value = me.pendingJoin
+                                _auth.value = AuthUiState()
+                            }
+                        },
+                        onFailure = { _auth.value = AuthUiState(error = it.message) }
+                    )
+                },
+                onFailure = { _auth.value = AuthUiState(error = it.message) }
+            )
+        }
+    }
+
+    fun clearPendingJoin() {
+        _pendingJoin.value = null
+        _auth.value = AuthUiState()
+    }
+
+    // -- join requests, seen by the Admin -----------------------------------
+
+    fun loadJoinRequests() {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            _joinRequests.value = _joinRequests.value.copy(loading = true, error = null)
+            repo.call { it.joinRequests(id) }.fold(
+                onSuccess = { _joinRequests.value = Async(data = it.requests) },
+                onFailure = { _joinRequests.value = Async(error = it.message) }
+            )
+        }
+    }
+
+    fun decideJoin(requestId: Long, approve: Boolean, who: String) {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            repo.call {
+                if (approve) it.approveJoin(id, requestId) else it.declineJoin(id, requestId)
+            }.fold(
+                onSuccess = {
+                    notify(if (approve) "$who joined the flat" else "$who was declined")
+                    loadJoinRequests()
+                    loadMembers()
+                },
+                onFailure = { notify(it.message ?: "Could not decide that request") }
             )
         }
     }

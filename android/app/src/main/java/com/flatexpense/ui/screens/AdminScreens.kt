@@ -19,7 +19,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -47,6 +49,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.flatexpense.data.api.MemberDto
+import com.flatexpense.ui.common.AppCard
 import com.flatexpense.ui.common.CategoryAvatar
 import com.flatexpense.ui.common.EmptyBox
 import com.flatexpense.ui.common.ErrorBox
@@ -635,6 +638,8 @@ fun MembersScreen(viewModel: AppViewModel) {
     Column(Modifier.fillMaxSize()) {
         if (session.isAdmin) {
             Column(Modifier.padding(16.dp)) {
+                JoinRequestsCard(viewModel)
+
                 // The cap is on flatmates. The Admin holds the common account
                 // rather than living here, so counting all six accounts would
                 // read "6 of 5" and disable the button for the wrong reason.
@@ -996,4 +1001,81 @@ private fun SectionLabel(text: String) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
     )
+}
+
+/**
+ * People who signed up and asked to join, waiting on the Admin.
+ *
+ * Only drawn when there is something to decide — an empty "no requests" card
+ * on every visit would be noise on a screen that is usually about the people
+ * already here. The email is shown because it is the detail that tells the
+ * Admin whether this is the flatmate they expect or someone who guessed the
+ * flat's name.
+ */
+@Composable
+private fun JoinRequestsCard(viewModel: AppViewModel) {
+    val state by viewModel.joinRequests.collectAsStateWithLifecycle()
+    val requests = state.data.orEmpty()
+
+    LaunchedEffect(Unit) { viewModel.loadJoinRequests() }
+
+    if (requests.isEmpty()) return
+
+    AppCard(Modifier.padding(bottom = 16.dp)) {
+        Text(
+            text = if (requests.size == 1) "1 person wants to join"
+            else "${requests.size} people want to join",
+            style = MaterialTheme.typography.titleSmall
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = "They can see nothing until you approve.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(12.dp))
+
+        requests.forEachIndexed { index, request ->
+            if (index > 0) {
+                Spacer(Modifier.height(10.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                Spacer(Modifier.height(10.dp))
+            }
+            Text(
+                text = request.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                text = request.email,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (!request.message.isNullOrBlank()) {
+                Spacer(Modifier.height(4.dp))
+                Text(
+                    text = "\u201C${request.message}\u201D",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = { viewModel.decideJoin(request.id, true, request.name) },
+                    modifier = Modifier.weight(1f)
+                ) { Text("Approve") }
+                OutlinedButton(
+                    onClick = { viewModel.decideJoin(request.id, false, request.name) },
+                    modifier = Modifier.weight(1f),
+                    colors = ButtonDefaults.outlinedButtonColors(
+                        contentColor = MaterialTheme.colorScheme.error
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.error.copy(alpha = 0.5f)
+                    )
+                ) { Text("Decline") }
+            }
+        }
+    }
 }

@@ -154,6 +154,33 @@ CREATE TABLE IF NOT EXISTS expense_receipts (
 ) ENGINE=InnoDB;
 
 -- ---------------------------------------------------------------------------
+-- join_requests — someone who signed up themselves and asked to join a flat.
+--
+-- Signing up creates the account but not the membership: until the Admin
+-- approves, the person is in no group and can see nothing. That is the whole
+-- point — a flat's expenses should never be one guessed flat name away.
+--
+-- The unique key is on (group_id, user_id) rather than only the pending ones,
+-- so asking again after a decline updates the same row back to pending instead
+-- of stacking up a pile of history the Admin has to read through.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS join_requests (
+  id         BIGINT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
+  group_id   BIGINT UNSIGNED NOT NULL,
+  user_id    BIGINT UNSIGNED NOT NULL,
+  status     ENUM('pending','approved','declined') NOT NULL DEFAULT 'pending',
+  message    VARCHAR(255) NULL,
+  created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  decided_by BIGINT UNSIGNED NULL,
+  decided_at TIMESTAMP NULL,
+  UNIQUE KEY uq_join_request (group_id, user_id),
+  CONSTRAINT fk_jr_group FOREIGN KEY (group_id)   REFERENCES `groups`(id) ON DELETE CASCADE,
+  CONSTRAINT fk_jr_user  FOREIGN KEY (user_id)    REFERENCES users(id)   ON DELETE CASCADE,
+  CONSTRAINT fk_jr_by    FOREIGN KEY (decided_by) REFERENCES users(id),
+  INDEX idx_jr_pending (group_id, status, created_at)
+) ENGINE=InnoDB;
+
+-- ---------------------------------------------------------------------------
 -- month_closures — a closed month is read-only: its expenses and its
 -- contributions are settled and cannot be changed while the row exists.
 --

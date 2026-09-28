@@ -45,20 +45,26 @@ data class RegisterRequest(
     val email: String,
     val password: String,
     val phone: String? = null,
-    val groupName: String? = null
+    /** Set to start a new flat. Mutually exclusive with joinGroupId. */
+    val groupName: String? = null,
+    /** Set to ask to join an existing flat; needs the Admin to approve. */
+    val joinGroupId: Long? = null,
+    val message: String? = null
 )
 
 @Serializable
 data class AuthResponse(
     val token: String,
     val user: UserDto,
-    val group: GroupDto? = null
+    val group: GroupDto? = null,
+    val pendingJoin: PendingJoinDto? = null
 )
 
 @Serializable
 data class MeResponse(
     val user: UserDto,
-    val groups: List<GroupDto>
+    val groups: List<GroupDto>,
+    val pendingJoin: PendingJoinDto? = null
 )
 
 @Serializable
@@ -453,3 +459,34 @@ data class SettlementResponse(
     val members: List<SettlementMemberDto> = emptyList(),
     val totals: SettlementTotals
 )
+
+// ---------------------------------------------------------------------------
+// Joining an existing flat
+// ---------------------------------------------------------------------------
+
+@Serializable
+data class FlatSummaryDto(val id: Long, val name: String)
+
+@Serializable
+data class FlatSearchResponse(val flats: List<FlatSummaryDto> = emptyList())
+
+/** Set while a sign-up is waiting on the Admin; null once they belong to a flat. */
+@Serializable
+data class PendingJoinDto(
+    val groupId: Long,
+    val groupName: String,
+    val status: String = "pending"
+)
+
+@Serializable
+data class JoinRequestDto(
+    val id: Long,
+    val userId: Long,
+    val name: String,
+    val email: String,
+    val message: String? = null,
+    val requestedAt: String? = null
+)
+
+@Serializable
+data class JoinRequestsResponse(val requests: List<JoinRequestDto> = emptyList())

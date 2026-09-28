@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 @Composable
-fun LoginScreen(viewModel: AppViewModel) {
+fun LoginScreen(viewModel: AppViewModel, onJoinFlat: () -> Unit = {}) {
     val state by viewModel.auth.collectAsStateWithLifecycle()
 
     var isRegistering by remember { mutableStateOf(false) }
@@ -176,6 +176,16 @@ fun LoginScreen(viewModel: AppViewModel) {
                 if (isRegistering) "I already have an account"
                 else "Create a new flat instead"
             )
+        }
+
+        // Starting a flat and joining one are different enough to be separate
+        // choices: the first makes you an Admin of something new, the second
+        // puts you in a queue for somebody else's.
+        if (!isRegistering) {
+            TextButton(onClick = {
+                viewModel.clearAuthError()
+                onJoinFlat()
+            }) { Text("Join an existing flat") }
         }
 
         TextButton(onClick = { showApiField = !showApiField }) {

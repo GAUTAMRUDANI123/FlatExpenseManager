@@ -39,6 +39,9 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
@@ -55,6 +58,8 @@ import com.flatexpense.ui.screens.ActivityScreen
 import com.flatexpense.ui.screens.AddExpenseScreen
 import com.flatexpense.ui.screens.AnalyticsScreen
 import com.flatexpense.ui.screens.AppViewModel
+import com.flatexpense.ui.screens.AwaitingApprovalScreen
+import com.flatexpense.ui.screens.JoinFlatScreen
 import com.flatexpense.ui.screens.CategoriesScreen
 import com.flatexpense.ui.screens.ContributionsScreen
 import com.flatexpense.ui.screens.DashboardScreen
@@ -89,8 +94,26 @@ private val TABS = listOf(
 fun AppScaffold(viewModel: AppViewModel) {
     val session by viewModel.session.collectAsStateWithLifecycle()
 
+    val pendingJoin by viewModel.pendingJoin.collectAsStateWithLifecycle()
+    var joining by rememberSaveable { mutableStateOf(false) }
+
     if (!session.isSignedIn) {
-        LoginScreen(viewModel)
+        // A request that has been made but not decided has its own screen: the
+        // account is real and the password works, so neither the login form nor
+        // an empty app would be telling the truth.
+        when {
+            pendingJoin != null -> AwaitingApprovalScreen(
+                viewModel = viewModel,
+                flatName = pendingJoin!!.groupName,
+                declined = pendingJoin!!.status == "declined",
+                onStartOver = {
+                    viewModel.clearPendingJoin()
+                    joining = false
+                }
+            )
+            joining -> JoinFlatScreen(viewModel) { joining = false }
+            else -> LoginScreen(viewModel, onJoinFlat = { joining = true })
+        }
         return
     }
 

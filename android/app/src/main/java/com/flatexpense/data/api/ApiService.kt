@@ -18,6 +18,25 @@ interface ApiService {
     @GET("api/auth/me")
     suspend fun me(): MeResponse
 
+    /** Finds a flat by name at sign-up. Needs at least three characters. */
+    @GET("api/auth/flats")
+    suspend fun findFlats(@Query("q") query: String): FlatSearchResponse
+
+    @GET("api/groups/{groupId}/join-requests")
+    suspend fun joinRequests(@Path("groupId") groupId: Long): JoinRequestsResponse
+
+    @POST("api/groups/{groupId}/join-requests/{requestId}/approve")
+    suspend fun approveJoin(
+        @Path("groupId") groupId: Long,
+        @Path("requestId") requestId: Long
+    ): OkResponse
+
+    @POST("api/groups/{groupId}/join-requests/{requestId}/decline")
+    suspend fun declineJoin(
+        @Path("groupId") groupId: Long,
+        @Path("requestId") requestId: Long
+    ): OkResponse
+
     @POST("api/auth/change-password")
     suspend fun changePassword(@Body body: ChangePasswordRequest): OkResponse
 
