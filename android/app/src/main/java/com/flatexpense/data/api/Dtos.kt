@@ -91,6 +91,9 @@ data class MemberDto(
 @Serializable
 data class MembersResponse(
     val adminId: Long,
+    /** The cap counts flatmates; the Admin sits outside it. */
+    val maxFlatmates: Int = 5,
+    val flatmateCount: Int = 0,
     val members: List<MemberDto>
 )
 

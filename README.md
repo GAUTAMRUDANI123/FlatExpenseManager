@@ -1,8 +1,13 @@
 # Flat Common Expense Manager
 
 Implementation of the *Flat Common Expense Manager* requirements document
-(v1.0): five flatmates, one Admin who holds the common account, monthly
+(v1.0): five flatmates, a separate Admin who holds the common account, monthly
 contributions, and flat expenses that the Admin approves or rejects.
+
+The Admin is a sixth account, not one of the five. They collect contributions,
+approve spending and hold the pot; they do not live in the flat and are never
+billed a monthly contribution. So a full flat is **six accounts**: one Admin
+and five flatmates.
 
 The rule the spec repeats most, implemented in both tiers: **Split To is not an
 equal split.** A ₹1,000 grocery expense is stored once, in full, with
@@ -50,6 +55,13 @@ Excel/PDF export, multiple groups per user, category budgets.
 **Money is never a float.** Amounts are `DECIMAL(12,2)` in MySQL, fixed-2dp
 strings over the wire, and are parsed only at the last moment for display. Float
 arithmetic on rupee amounts drifts once you start summing monthly totals.
+
+**The Admin is not one of the five.** `groups.admin_id` names the account that
+holds the common pot, and every query about who owes money — contributions, the
+member cap, the dashboard's payment status, settlement — excludes that row.
+Nothing else needed a column: the group already knew who its Admin was, so
+"is this person a flatmate" is simply "are they someone other than the Admin".
+The Admin still appears under Paid By, because they do spend from the pot.
 
 **Admin is a property of the group, not the user.** `groups.admin_id` decides
 who can approve, so the check happens in one middleware
@@ -173,11 +185,12 @@ After `npm run seed`, sign in with any of these (password `password123`):
 
 | Email | Role |
 |---|---|
-| rahul@flat302.test | Admin |
-| gautam@flat302.test | Member |
-| priya@flat302.test | Member |
-| anjali@flat302.test | Member |
-| vikram@flat302.test | Member |
+| admin@flat302.test | Admin — holds the pot, contributes nothing |
+| gautam@flat302.test | Flatmate |
+| priya@flat302.test | Flatmate |
+| anjali@flat302.test | Flatmate |
+| vikram@flat302.test | Flatmate |
+| neha@flat302.test | Flatmate |
 
 ## Before you use this for real money
 

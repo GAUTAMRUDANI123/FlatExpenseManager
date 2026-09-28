@@ -52,12 +52,12 @@ async function main() {
 
   // --- auth -----------------------------------------------------------------
   console.log('Authentication');
-  const adminToken = await login('rahul@flat302.test');
+  const adminToken = await login('admin@flat302.test');
   const gautamToken = await login('gautam@flat302.test');
   const priyaToken = await login('priya@flat302.test');
 
   const badLogin = await call('POST', '/api/auth/login', {
-    body: { email: 'rahul@flat302.test', password: 'wrongpassword' }
+    body: { email: 'admin@flat302.test', password: 'wrongpassword' }
   });
   check('wrong password is rejected', badLogin.status === 401);
 
@@ -252,7 +252,13 @@ async function main() {
   const contributions = await call('GET', `/api/groups/${groupId}/contributions`, {
     token: adminToken
   });
-  check('all five members listed', contributions.body.contributions.length === 5);
+  // Five flatmates. The Admin holds the common account and is not billed,
+  // so they are deliberately absent from this list.
+  check('the five flatmates are listed', contributions.body.contributions.length === 5);
+  check(
+    'the Admin is not billed a contribution',
+    !contributions.body.contributions.some((c) => c.isAdmin)
+  );
   check('expected total is 25,000', contributions.body.totals.expected === '25000.00');
 
   const memberRecords = await call('POST', `/api/groups/${groupId}/contributions`, {
@@ -285,7 +291,7 @@ async function main() {
       password: 'password123'
     }
   });
-  check('a sixth member is refused', sixth.status === 409, JSON.stringify(sixth.body));
+  check('a sixth flatmate is refused', sixth.status === 409, JSON.stringify(sixth.body));
 
   console.log(`\n${passed} passed, ${failed} failed\n`);
   process.exit(failed === 0 ? 0 : 1);

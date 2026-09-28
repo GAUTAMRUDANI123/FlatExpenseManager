@@ -17,13 +17,28 @@ const { seedCategories } = require('../services/categories');
 const GROUP_NAME = 'Flat 302, Sunrise Apartments';
 const PASSWORD = 'password123';
 
-const PEOPLE = [
-  { name: 'Rahul', email: 'rahul@flat302.test', phone: '9000000001', admin: true },
+/**
+ * Six accounts: the Admin, who holds the common account and approves spending
+ * without living here, and the five flatmates who actually contribute. The
+ * Admin is deliberately not one of the five — the cap, the contributions and
+ * the settlement all count flatmates, so a full flat is six rows.
+ */
+const ADMIN = {
+  name: 'Rahul',
+  email: 'admin@flat302.test',
+  phone: '9000000000',
+  admin: true
+};
+
+const FLATMATES = [
   { name: 'Gautam', email: 'gautam@flat302.test', phone: '9000000002' },
   { name: 'Priya', email: 'priya@flat302.test', phone: '9000000003' },
   { name: 'Anjali', email: 'anjali@flat302.test', phone: '9000000004' },
-  { name: 'Vikram', email: 'vikram@flat302.test', phone: '9000000005' }
+  { name: 'Vikram', email: 'vikram@flat302.test', phone: '9000000005' },
+  { name: 'Neha', email: 'neha@flat302.test', phone: '9000000006' }
 ];
+
+const PEOPLE = [ADMIN, ...FLATMATES];
 
 function monthOf(date) {
   return `${date.toISOString().slice(0, 7)}-01`;
@@ -85,9 +100,10 @@ async function main() {
     );
     const categoryId = (name) => categories.find((c) => c.name === name).id;
 
-    // Table 2: everyone owes 5,000; three have paid.
-    const paidBy = { Rahul: true, Gautam: true, Anjali: true };
-    for (const person of PEOPLE) {
+    // Table 2: each flatmate owes 5,000; three have paid. The Admin is not
+    // billed — they collect rather than contribute.
+    const paidBy = { Gautam: true, Anjali: true, Neha: true };
+    for (const person of FLATMATES) {
       const hasPaid = Boolean(paidBy[person.name]);
       await conn.query(
         `INSERT INTO monthly_contributions
@@ -208,7 +224,7 @@ async function main() {
         `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
       const histDate = `${histMonth.slice(0, 8)}12`;
 
-      for (const person of PEOPLE) {
+      for (const person of FLATMATES) {
         await conn.query(
           `INSERT INTO monthly_contributions
              (group_id, user_id, month, expected_amount, paid_amount, status, paid_at, recorded_by)
@@ -239,13 +255,15 @@ async function main() {
       }
     }
 
-    console.log(`Seeded group ${groupId} "${GROUP_NAME}" with ${PEOPLE.length} members.`);
+    console.log(`Seeded group ${groupId} "${GROUP_NAME}": 1 Admin + ${FLATMATES.length} flatmates.`);
     console.log(`Plus ${history.length} months of settled history, so the charts have something to show.`);
   });
 
-  console.log('\nSign in with any of:');
-  for (const p of PEOPLE) {
-    console.log(`  ${p.email.padEnd(24)} / ${PASSWORD}${p.admin ? '   (Admin)' : ''}`);
+  console.log('\nAdmin — holds the common account, contributes nothing:');
+  console.log(`  ${ADMIN.email.padEnd(24)} / ${PASSWORD}`);
+  console.log(`\nFlatmates — ₹5,000 each per month:`);
+  for (const p of FLATMATES) {
+    console.log(`  ${p.email.padEnd(24)} / ${PASSWORD}`);
   }
 
   await pool.end();

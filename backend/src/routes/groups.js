@@ -50,17 +50,25 @@ router.get(
       [req.group.id, req.group.adminId]
     );
 
+    const members = rows.map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      email: r.email,
+      phone: r.phone,
+      status: r.status,
+      joinedAt: r.joined_at,
+      isAdmin: Number(r.id) === req.group.adminId
+    }));
+
+    // The Admin holds the common account rather than living here, so they are
+    // not one of the five. The counts are reported separately because "5 of 5"
+    // has to mean flatmates, or a full flat would look like it had room.
+    const flatmates = members.filter((m) => !m.isAdmin);
     res.json({
       adminId: req.group.adminId,
-      members: rows.map((r) => ({
-        id: Number(r.id),
-        name: r.name,
-        email: r.email,
-        phone: r.phone,
-        status: r.status,
-        joinedAt: r.joined_at,
-        isAdmin: Number(r.id) === req.group.adminId
-      }))
+      maxFlatmates: MAX_GROUP_MEMBERS,
+      flatmateCount: flatmates.filter((m) => m.status === 'active').length,
+      members
     });
   })
 );
@@ -82,12 +90,19 @@ router.post(
     const passwordHash = await bcrypt.hash(password, 10);
 
     const member = await withTransaction(async (conn) => {
+      // The cap is on flatmates, not accounts. The Admin holds the common
+      // account rather than living here, so they sit outside the five and a
+      // full flat is six rows in group_members.
       const [countRows] = await conn.query(
-        `SELECT COUNT(*) AS n FROM group_members WHERE group_id = ? AND status = 'active'`,
-        [req.group.id]
+        `SELECT COUNT(*) AS n FROM group_members
+          WHERE group_id = ? AND status = 'active' AND user_id <> ?`,
+        [req.group.id, req.group.adminId]
       );
       if (Number(countRows[0].n) >= MAX_GROUP_MEMBERS) {
-        throw new ApiError(409, `This group already has its ${MAX_GROUP_MEMBERS} members`);
+        throw new ApiError(
+          409,
+          `This flat already has its ${MAX_GROUP_MEMBERS} flatmates`
+        );
       }
 
       let [existing] = await conn.query('SELECT id FROM users WHERE email = ?', [email]);
@@ -326,9 +341,9 @@ router.get(
          JOIN users u ON u.id = gm.user_id
          LEFT JOIN monthly_contributions mc
                 ON mc.group_id = gm.group_id AND mc.user_id = gm.user_id AND mc.month = ?
-        WHERE gm.group_id = ? AND gm.status = 'active'
+        WHERE gm.group_id = ? AND gm.status = 'active' AND gm.user_id <> ?
         ORDER BY u.name ASC`,
-      [month, req.group.id]
+      [month, req.group.id, req.group.adminId]
     );
 
     const expected = rows.reduce((sum, r) => sum + Number(r.expected_amount), 0);
@@ -385,6 +400,12 @@ router.post(
         [req.group.id, userId]
       );
       if (member.length === 0) throw new ApiError(400, 'That person is not an active member');
+      if (Number(userId) === req.group.adminId) {
+        throw new ApiError(
+          400,
+          'The Admin holds the common account and does not pay a monthly contribution'
+        );
+      }
 
       const [existingRows] = await conn.query(
         `SELECT expected_amount, paid_amount FROM monthly_contributions
@@ -460,8 +481,9 @@ router.post(
       await assertMonthOpen(conn, req.group.id, month, 'This contribution');
 
       const [members] = await conn.query(
-        `SELECT user_id FROM group_members WHERE group_id = ? AND status = 'active'`,
-        [req.group.id]
+        `SELECT user_id FROM group_members
+          WHERE group_id = ? AND status = 'active' AND user_id <> ?`,
+        [req.group.id, req.group.adminId]
       );
       for (const m of members) {
         await conn.query(
@@ -745,9 +767,9 @@ router.get(
            JOIN users u ON u.id = gm.user_id
            LEFT JOIN monthly_contributions mc
                   ON mc.group_id = gm.group_id AND mc.user_id = gm.user_id AND mc.month = ?
-          WHERE gm.group_id = ? AND gm.status = 'active'
+          WHERE gm.group_id = ? AND gm.status = 'active' AND gm.user_id <> ?
           ORDER BY u.name ASC`,
-        [month, groupId]
+        [month, groupId, req.group.adminId]
       )
     ]);
 
@@ -1152,9 +1174,9 @@ router.get(
          JOIN users u ON u.id = gm.user_id
          LEFT JOIN monthly_contributions mc
                 ON mc.group_id = gm.group_id AND mc.user_id = u.id AND mc.month = ?
-        WHERE gm.group_id = ? AND gm.status = 'active'
+        WHERE gm.group_id = ? AND gm.status = 'active' AND gm.user_id <> ?
         ORDER BY u.name`,
-      [month, end, month, req.group.id]
+      [month, end, month, req.group.id, req.group.adminId]
     );
 
     const members = rows.map((r) => {

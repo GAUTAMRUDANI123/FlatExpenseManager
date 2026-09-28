@@ -635,14 +635,18 @@ fun MembersScreen(viewModel: AppViewModel) {
     Column(Modifier.fillMaxSize()) {
         if (session.isAdmin) {
             Column(Modifier.padding(16.dp)) {
+                // The cap is on flatmates. The Admin holds the common account
+                // rather than living here, so counting all six accounts would
+                // read "6 of 5" and disable the button for the wrong reason.
+                val flatmates = members.count { it.status == "active" && !it.isAdmin }
                 Button(
                     onClick = { adding = true },
-                    enabled = members.count { it.status == "active" } < 5,
+                    enabled = flatmates < 5,
                     modifier = Modifier.fillMaxWidth()
-                ) { Text("Add member") }
+                ) { Text("Add flatmate") }
                 Spacer(Modifier.height(6.dp))
                 Text(
-                    text = "${members.count { it.status == "active" }} of 5 members",
+                    text = "$flatmates of 5 flatmates, plus you as Admin",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -657,6 +661,14 @@ fun MembersScreen(viewModel: AppViewModel) {
                 items(members, key = { it.id }) { member ->
                     val inactive = member.status != "active"
                     var menuOpen by remember(member.id) { mutableStateOf(false) }
+
+                    // A heading before the first flatmate, so the Admin does
+                    // not read as the first of five.
+                    if (member.isAdmin) {
+                        SectionLabel("Admin — holds the common account")
+                    } else if (members.firstOrNull { !it.isAdmin }?.id == member.id) {
+                        SectionLabel("Flatmates — contribute each month")
+                    }
 
                     Row(
                         modifier = Modifier
@@ -973,4 +985,15 @@ fun ProfileScreen(viewModel: AppViewModel) {
             }
         )
     }
+}
+
+/** A small heading inside a list, used to separate the Admin from the flatmates. */
+@Composable
+private fun SectionLabel(text: String) {
+    Text(
+        text = text,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(top = 16.dp, bottom = 4.dp)
+    )
 }
