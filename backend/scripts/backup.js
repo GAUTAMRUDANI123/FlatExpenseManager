@@ -130,6 +130,57 @@ async function main() {
 
   prune();
   console.log(`\nKeeping the newest ${KEEP} dumps in backend/backups/.`);
+
+  copyOffMachine(outPath);
+}
+
+/**
+ * Copies the dump somewhere that is not this disk.
+ *
+ * A backup beside the database it came from protects against a bad query and
+ * nothing else. The failure people actually lose their records to is the drive
+ * dying, and that takes the database and every local dump with it in one go.
+ *
+ * BACKUP_COPY_TO is usually a synced folder — OneDrive, Google Drive, Dropbox —
+ * so the file leaves the machine without any upload code here. A second disk or
+ * a USB stick works just as well.
+ */
+function copyOffMachine(outPath) {
+  const target = process.env.BACKUP_COPY_TO;
+  if (!target) {
+    console.log(
+      '\nNo BACKUP_COPY_TO set, so this dump exists only on this disk.' +
+        '\nA drive failure would take the database and this backup together.' +
+        '\nSet it in .env to a synced folder, for example:' +
+        '\n  BACKUP_COPY_TO=C:/Users/you/OneDrive/FlatExpenseBackups'
+    );
+    return;
+  }
+
+  try {
+    fs.mkdirSync(target, { recursive: true });
+    const copied = path.join(target, path.basename(outPath));
+    fs.copyFileSync(outPath, copied);
+
+    // Prune the off-machine copies too, or the synced folder grows forever.
+    const stale = fs
+      .readdirSync(target)
+      .filter((f) => f.endsWith('.sql'))
+      .map((f) => ({ name: f, time: fs.statSync(path.join(target, f)).mtimeMs }))
+      .sort((a, b) => b.time - a.time)
+      .slice(KEEP);
+    for (const f of stale) fs.unlinkSync(path.join(target, f.name));
+
+    console.log(`\nCopied off this machine to:\n  ${copied}`);
+  } catch (err) {
+    // A failed copy must not look like a successful backup.
+    console.error(
+      `\nWARNING: the dump was written but could NOT be copied to ${target}` +
+        `\n  ${err.message}` +
+        '\nIt currently exists only on this disk.'
+    );
+    process.exitCode = 1;
+  }
 }
 
 main().catch((err) => {

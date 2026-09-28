@@ -193,8 +193,43 @@ If `mysqldump` is not on your PATH, set `MYSQLDUMP_PATH` in `.env`:
 MYSQLDUMP_PATH=C:/Program Files/MySQL/MySQL Server 8.0/bin/mysqldump.exe
 ```
 
-Schedule it weekly in Task Scheduler, and occasionally copy the folder
-somewhere that is not that laptop — Drive, a USB stick, anywhere else at all.
+### Getting the backup off the laptop
+
+A dump sitting next to the database protects you against a bad query and
+nothing else. The failure that actually loses people their records is the
+drive dying, and that takes the database and every local dump with it in one
+go.
+
+Set `BACKUP_COPY_TO` in `.env` to a synced folder and every dump is copied
+there automatically:
+
+```
+BACKUP_COPY_TO=C:/Users/you/OneDrive/FlatExpenseBackups
+```
+
+OneDrive, Google Drive or Dropbox all work — the sync client does the
+uploading, so there are no cloud credentials in this project. A second drive or
+a USB stick works too, as long as it is not the disk the database is on. The
+newest 14 are kept in both places; older ones are pruned.
+
+If the copy fails, the script says so loudly and exits non-zero rather than
+reporting a successful backup that only exists in one place.
+
+### Running it daily without remembering
+
+`scripts/backup.cmd` is a wrapper for Task Scheduler, which handles a batch
+file far more predictably than a node command line:
+
+```powershell
+schtasks /Create /TN "FlatExpense Daily Backup" ^
+  /TR "C:\path	oackend\scriptsackup.cmd" /SC DAILY /ST 21:00
+```
+
+Note that a scheduled task does not inherit your shell, so anything the script
+needs must be in `.env` rather than set on the command line — `MYSQLDUMP_PATH`
+especially. Run the task once by hand (`schtasks /Run /TN "..."`) and check
+`backend/backups/backup.log` before trusting it; a backup you have never seen
+succeed is not a backup.
 
 Restore with:
 
