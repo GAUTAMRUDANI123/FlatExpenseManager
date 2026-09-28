@@ -65,13 +65,16 @@ npm start
 curl http://localhost:4000/api/health     # {"ok":true,"db":"up"}
 ```
 
-**Do not run `npm run seed`** for a real flat. It creates five demo accounts
+**Do not run `npm run seed`** for a real flat. It creates six demo accounts
 that all share the password `password123`, and this repository is public. Seed
 data is for trying the app out, not for running it. Create your own account
 instead:
 
-Open the app, tap **Create account**, and enter your name, email, password and
-your flat's name. That makes you the Admin. The other four get added in step 6.
+Open the app, tap **Create a new flat instead**, and enter your name, email,
+password and your flat's name. That makes you the **Admin** — the account that
+holds the common pot, approves spending and is never billed a contribution.
+The five flatmates get added in step 6, so the flat ends up with six accounts
+in total.
 
 ## 3. The tunnel
 
@@ -145,17 +148,18 @@ On each phone, after installing:
    `https://flat.yourdomain.com/`
 4. Tap **Save**
 
-## 6. Create the other four accounts
+## 6. Create the five flatmate accounts
 
-As Admin: **More → Members → Add member**. Enter each flatmate's name, email
+As Admin: **More → Members → Add flatmate**. Enter each person's name, email
 and a temporary password.
 
 Tell them to change it on first sign-in: **More → Profile → Change password**.
 Nothing forces this, so it is worth actually chasing.
 
-The group caps at five active members, which is the rule the spec is built
-around. If someone moves out, deactivate them (**Members → ⋮ → Deactivate**) to
-free the slot — their past expenses stay in the history.
+The cap is five *flatmates*; you as Admin sit outside it, so a full flat is six
+accounts. If someone moves out, deactivate them (**Members → ⋮ → Deactivate**)
+to free the slot — their past expenses stay in the history, which is why there
+is no delete.
 
 ---
 
