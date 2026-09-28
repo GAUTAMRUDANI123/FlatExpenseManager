@@ -31,3 +31,6 @@ Thumbs.db
 # --- Database dumps ---------------------------------------------------------
 # Real data: member emails and bcrypt password hashes. Never commit these.
 backend/backups/
+
+# Kotlin compiler session files, written during a build
+.kotlin/
