@@ -15,7 +15,8 @@
     "seed": "node src/db/seed.js",
     "smoke": "node test/smoke.js",
     "backup": "node scripts/backup.js",
-    "e2e": "node test/e2e.js"
+    "e2e": "node test/e2e.js",
+    "db:check": "node scripts/db-check.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

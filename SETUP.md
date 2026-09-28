@@ -268,7 +268,23 @@ would ever see.
 So use a provider that offers MySQL on a free plan, and keep its connection
 details: host, port, user, password, database name, and its CA certificate.
 
-### 2. Load the schema and your data
+### 2. Check the connection before anything depends on it
+
+```bash
+cd backend
+DB_HOST=<host> DB_PORT=<port> DB_USER=<user> DB_PASSWORD=<pw>   DB_NAME=<db> DB_SSL=true npm run db:check
+```
+
+It connects, says whether TLS verified the server, measures the round trip,
+lists what tables exist and confirms the account can write. When it cannot
+connect it names the likely cause rather than leaving you with a driver error
+— a wrong host, a firewall, a rejected password and a missing database all
+look different and it says which.
+
+Worth doing first: the alternative is discovering the problem as a 503 from a
+deployed service with the real reason buried in a log.
+
+### 3. Load the schema and your data
 
 From this laptop, pointed at the hosted database:
 
@@ -281,7 +297,7 @@ Then move what you already have. `npm run backup` writes a dump; load it into
 the hosted database with whatever client the provider gives you. It is a small
 file — a flat's whole history is tens of kilobytes.
 
-### 3. Deploy the API
+### 4. Deploy the API
 
 `backend/render.yaml` describes the service: free plan, `npm start`, and
 `/api/health` as the health check, so a service that is running but cannot
@@ -292,7 +308,7 @@ Point Render at this repository and fill in the `DB_*` variables it asks for.
 `JWT_SECRET` is generated once and then left alone — regenerating it signs
 everybody out.
 
-### 4. Point the app at it
+### 5. Point the app at it
 
 On each phone: **Server settings**, then the Render address with a trailing
 slash. Once. It never changes again.
