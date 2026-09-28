@@ -18,6 +18,7 @@ require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
 const mysql = require('mysql2/promise');
+const { sslOptions } = require('./ssl');
 
 const SCHEMA_PATH = path.join(__dirname, '..', '..', 'sql', 'schema.sql');
 
@@ -61,6 +62,10 @@ async function main() {
   const database = process.env.DB_NAME || 'flat_expense_manager';
 
   const connection = await mysql.createConnection({
+    // A hosted database needs TLS here as much as the pool does; without it
+    // the migration fails on a server that the running app connects to fine,
+    // which is a confusing way to find out.
+    ssl: sslOptions(),
     host: process.env.DB_HOST || '127.0.0.1',
     port: Number(process.env.DB_PORT || 3306),
     user: process.env.DB_USER || 'root',

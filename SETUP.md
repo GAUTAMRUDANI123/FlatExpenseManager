@@ -237,6 +237,80 @@ Restore with:
 mysql -u root -p flat_expense_manager < backend/backups/<file>.sql
 ```
 
+## Putting it in the cloud instead
+
+Everything above keeps the database on your laptop and reaches it through a
+tunnel. That works, but it has three standing costs: the address changes when
+the tunnel restarts, the laptop has to stay awake, and every expense the flat
+has ever recorded sits on one disk.
+
+Hosting the API removes all three at once. The trade is a cold start — a free
+tier sleeps when idle, so the first person to open the app after a quiet spell
+waits half a minute — and your data sitting on someone else's server.
+
+### The shape of it
+
+```
+   six phones  ->  https://your-api.onrender.com  ->  managed MySQL
+```
+
+Nothing on anyone's phone, an address that never changes, and no laptop in the
+path at all.
+
+### 1. A managed MySQL
+
+The database stays MySQL. Render's own managed database is PostgreSQL, and
+this app is MySQL throughout — the schema, the queries, the DECIMAL handling
+that keeps the rupee arithmetic exact. Rewriting all of that to change engine
+would be a large change with real risk to the money, for no benefit the flat
+would ever see.
+
+So use a provider that offers MySQL on a free plan, and keep its connection
+details: host, port, user, password, database name, and its CA certificate.
+
+### 2. Load the schema and your data
+
+From this laptop, pointed at the hosted database:
+
+```bash
+cd backend
+DB_HOST=<host> DB_PORT=<port> DB_USER=<user> DB_PASSWORD=<pw>   DB_NAME=<db> DB_SSL=true npm run migrate
+```
+
+Then move what you already have. `npm run backup` writes a dump; load it into
+the hosted database with whatever client the provider gives you. It is a small
+file — a flat's whole history is tens of kilobytes.
+
+### 3. Deploy the API
+
+`backend/render.yaml` describes the service: free plan, `npm start`, and
+`/api/health` as the health check, so a service that is running but cannot
+reach its database is correctly treated as unhealthy rather than quietly
+serving errors.
+
+Point Render at this repository and fill in the `DB_*` variables it asks for.
+`JWT_SECRET` is generated once and then left alone — regenerating it signs
+everybody out.
+
+### 4. Point the app at it
+
+On each phone: **Server settings**, then the Render address with a trailing
+slash. Once. It never changes again.
+
+### What to watch
+
+**The first request after idle is slow.** Free tiers sleep. Half a minute of
+apparent hanging, then normal speed. Tell your flatmates, or they will report
+it as broken.
+
+**Back up anyway.** The database is someone else's now, but a free tier is
+still a free tier — `npm run backup` works against a hosted database exactly
+the same way, and `BACKUP_COPY_TO` still puts the dump somewhere you control.
+
+**`DB_CA` is worth setting.** Without it the connection to the database is
+encrypted but the server is unverified. The provider gives you the certificate;
+paste it in.
+
 ## Close signup once your flat exists
 
 Registration is open so the very first flat can be created. After that the

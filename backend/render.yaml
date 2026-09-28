@@ -1,0 +1,62 @@
+# Render deployment.
+#
+# The database is not declared here: Render's managed database is PostgreSQL,
+# and this app is MySQL throughout — the schema, the queries, the DECIMAL
+# handling. Rewriting all of that to move host would be a large change with
+# real risk to the money handling, so the database stays MySQL and is pointed
+# at a managed MySQL provider through the DB_* variables below.
+services:
+  - type: web
+    name: flat-expense-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm ci --omit=dev
+    startCommand: npm start
+    # Render restarts the service if this stops answering. It checks the
+    # database too, so a service that is up but cannot reach its data is
+    # correctly treated as unhealthy rather than quietly serving errors.
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Generated once by Render and then kept. Regenerating it would sign
+      # every existing token out.
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: MAX_GROUP_MEMBERS
+        value: 5
+      # Render terminates TLS at its edge and forwards, so the client address
+      # arrives in X-Forwarded-For. "loopback" is right when cloudflared runs
+      # beside the app; here the proxy is one hop in front, and without this
+      # the rate limiter would bucket every request in the world together
+      # under Render's own address.
+      - key: TRUST_PROXY
+        value: 1
+      # Set to false once the flat's six accounts exist.
+      - key: ALLOW_REGISTRATION
+        value: true
+      # A hosted database is reached over the internet and requires TLS.
+      - key: DB_SSL
+        value: true
+      # Free tiers hand out few connections; exhausting them takes the API
+      # down rather than slowing it.
+      - key: DB_POOL
+        value: 5
+      # Filled in from the database provider's connection details.
+      - key: DB_HOST
+        sync: false
+      - key: DB_PORT
+        sync: false
+      - key: DB_USER
+        sync: false
+      - key: DB_PASSWORD
+        sync: false
+      - key: DB_NAME
+        sync: false
+      # The provider's CA certificate. Without it the connection is encrypted
+      # but the server is unverified.
+      - key: DB_CA
+        sync: false
