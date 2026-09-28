@@ -74,16 +74,33 @@ async function main() {
 
   // --- membership boundary --------------------------------------------------
   console.log('\nGroup isolation');
+  // A fixed address, not a timestamped one. This used to mint a new account
+  // and a new flat on every run, so a database that had seen the suite a
+  // dozen times carried a dozen abandoned flats. Now the first run creates it
+  // and later runs sign back in to the same one.
+  const OUTSIDER = 'outsider@example.test';
+  let outsiderToken;
   const outsider = await call('POST', '/api/auth/register', {
     body: {
       name: 'Outsider',
-      email: `outsider${Date.now()}@example.test`,
+      email: OUTSIDER,
       password: 'password123',
       groupName: 'Some other flat'
     }
   });
-  check('outsider can register their own flat', outsider.status === 201);
-  const outsiderToken = outsider.body.token;
+  if (outsider.status === 201) {
+    check('outsider can register their own flat', true);
+    outsiderToken = outsider.body.token;
+  } else {
+    // Already there from an earlier run, which is the same starting point.
+    check('outsider can register their own flat', outsider.status === 409,
+      JSON.stringify(outsider.body));
+    outsiderToken = await login(OUTSIDER);
+  }
+  // Read back rather than taken from the register response, which only the
+  // first run gets.
+  const outsiderMe = await call('GET', '/api/auth/me', { token: outsiderToken });
+  const outsiderId = outsiderMe.body.user.id;
 
   const crossGroup = await call('GET', `/api/groups/${groupId}/dashboard`, {
     token: outsiderToken
@@ -153,7 +170,7 @@ async function main() {
       categoryId: grocery.id,
       description: 'Bad split',
       amount: 100,
-      splitTo: outsider.body.user.id
+      splitTo: outsiderId
     }
   });
   check('splitTo must be a group member', badSplit.status === 400);

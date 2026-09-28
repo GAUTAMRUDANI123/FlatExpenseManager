@@ -157,6 +157,12 @@ Run the rule checks against a seeded database:
 npm run smoke
 ```
 
+`npm run e2e` is the wider one: it builds its own flat from nothing and lives
+in it for a month — both routes in, contributions, spending, approvals, a
+correction that reopens a decision, a month closed and reopened — then checks
+the totals still reconcile. It creates its own data rather than leaning on the
+seed, so it can be run against any database.
+
 ### 3. Android app
 
 Open `android/` in Android Studio and Run, or from the command line:
