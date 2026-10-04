@@ -343,6 +343,10 @@ data class UpdateExpenseResponse(
     val reopened: Boolean = false
 )
 
+/** The Admin setting a temporary password for a flatmate who is locked out. */
+@Serializable
+data class ResetPasswordRequest(val newPassword: String)
+
 @Serializable
 data class ChangePasswordRequest(
     val currentPassword: String,

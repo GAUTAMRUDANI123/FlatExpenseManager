@@ -31,6 +31,7 @@ import com.flatexpense.data.api.MemberDto
 import com.flatexpense.data.api.MonthlyReportResponse
 import com.flatexpense.data.api.RecordContributionRequest
 import com.flatexpense.data.api.RegisterRequest
+import com.flatexpense.data.api.ResetPasswordRequest
 import com.flatexpense.data.api.TransferAdminRequest
 import com.flatexpense.data.api.UpdateCategoryRequest
 import com.flatexpense.data.api.UpdateExpenseRequest
@@ -944,6 +945,26 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     onDone()
                 },
                 onFailure = { notify(it.message ?: "Could not reopen the month") }
+            )
+        }
+    }
+
+    /**
+     * The Admin sets a temporary password for someone who is locked out. They
+     * are told it in person — there is no mail in this app, and inventing some
+     * would be a far larger thing than the problem needs.
+     */
+    fun resetMemberPassword(userId: Long, newPassword: String, who: String, onDone: () -> Unit) {
+        val id = groupId().takeIf { it > 0 } ?: return
+        viewModelScope.launch {
+            repo.call {
+                it.resetMemberPassword(id, userId, ResetPasswordRequest(newPassword))
+            }.fold(
+                onSuccess = {
+                    notify("Password reset for $who — tell them the new one")
+                    onDone()
+                },
+                onFailure = { notify(it.message ?: "Could not reset the password") }
             )
         }
     }

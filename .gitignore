@@ -34,3 +34,11 @@ backend/backups/
 
 # Kotlin compiler session files, written during a build
 .kotlin/
+
+# --- Release signing ---------------------------------------------------------
+# The keystore and its passwords. Losing the keystore means never being able to
+# update the app again; leaking it means someone else can publish as you.
+# Neither belongs in a public repository.
+*.jks
+*.keystore
+keystore.properties

@@ -63,6 +63,14 @@ interface ApiService {
         @Body body: UpdateMemberRequest
     ): OkResponse
 
+    /** Admin-only recovery for a flatmate who has forgotten their password. */
+    @POST("api/groups/{groupId}/members/{userId}/reset-password")
+    suspend fun resetMemberPassword(
+        @Path("groupId") groupId: Long,
+        @Path("userId") userId: Long,
+        @Body body: ResetPasswordRequest
+    ): OkResponse
+
     @POST("api/groups/{groupId}/transfer-admin")
     suspend fun transferAdmin(
         @Path("groupId") groupId: Long,

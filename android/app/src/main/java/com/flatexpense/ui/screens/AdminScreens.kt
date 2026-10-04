@@ -630,6 +630,8 @@ fun MembersScreen(viewModel: AppViewModel) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var promoting by remember { mutableStateOf<MemberDto?>(null) }
+    var resetting by remember { mutableStateOf<MemberDto?>(null) }
+    var resetPassword by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) { viewModel.loadMembers() }
 
@@ -729,6 +731,14 @@ fun MembersScreen(viewModel: AppViewModel) {
                                         )
                                     }
                                     DropdownMenuItem(
+                                        text = { Text("Reset password") },
+                                        onClick = {
+                                            menuOpen = false
+                                            resetting = member
+                                            resetPassword = ""
+                                        }
+                                    )
+                                    DropdownMenuItem(
                                         text = {
                                             Text(if (inactive) "Reactivate" else "Deactivate")
                                         },
@@ -798,6 +808,46 @@ fun MembersScreen(viewModel: AppViewModel) {
                 ) { Text("Add") }
             },
             dismissButton = { TextButton(onClick = { adding = false }) { Text("Cancel") } }
+        )
+    }
+
+    resetting?.let { target ->
+        AlertDialog(
+            onDismissRequest = { resetting = null },
+            title = { Text("Reset ${target.name}'s password") },
+            text = {
+                Column {
+                    Text(
+                        text = "Set a temporary password and tell ${target.name} in person. " +
+                            "Their old one stops working straight away, and they should " +
+                            "change this one from Profile after signing in.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedTextField(
+                        value = resetPassword,
+                        onValueChange = { resetPassword = it },
+                        label = { Text("Temporary password") },
+                        singleLine = true,
+                        supportingText = { Text("At least 8 characters") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        viewModel.resetMemberPassword(target.id, resetPassword, target.name) {
+                            resetting = null
+                            resetPassword = ""
+                        }
+                    },
+                    enabled = resetPassword.length >= 8
+                ) { Text("Reset") }
+            },
+            dismissButton = {
+                TextButton(onClick = { resetting = null }) { Text("Cancel") }
+            }
         )
     }
 

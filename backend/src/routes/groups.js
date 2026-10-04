@@ -148,6 +148,72 @@ router.post(
   })
 );
 
+/**
+ * POST /api/groups/:groupId/members/:userId/reset-password  (Admin)
+ *
+ * The recovery path for a forgotten password, and the reason it has to exist:
+ * without it the only way back in is a brand new account, which gets a new
+ * user id — so every expense the person ever paid for stays attached to the
+ * old one and their history is split in two. Five people will forget a
+ * password eventually.
+ *
+ * The Admin sets a temporary password and tells them in person, matching how
+ * accounts are created here. No email is sent, because this app has no mail
+ * and inventing one would be a far larger thing than the problem needs.
+ *
+ * Not usable on the Admin's own account: resetting your own password is what
+ * /auth/change-password is for, and that one asks for the current password
+ * first. Allowing it here would turn a stolen unlocked phone into a permanent
+ * takeover of the flat's money.
+ */
+router.post(
+  '/:groupId/members/:userId/reset-password',
+  requireGroupAdmin,
+  asyncHandler(async (req, res) => {
+    const userId = Number(req.params.userId);
+    if (!Number.isInteger(userId) || userId <= 0) {
+      throw new ApiError(400, 'Invalid member id');
+    }
+    const newPassword = requirePassword(req.body, 'newPassword');
+
+    if (userId === req.group.adminId) {
+      throw new ApiError(
+        409,
+        'Use Change password for your own account, which asks for your current one first'
+      );
+    }
+
+    const name = await withTransaction(async (conn) => {
+      const [rows] = await conn.query(
+        `SELECT u.id, u.name FROM group_members gm
+           JOIN users u ON u.id = gm.user_id
+          WHERE gm.group_id = ? AND gm.user_id = ?`,
+        [req.group.id, userId]
+      );
+      if (rows.length === 0) throw new ApiError(404, 'Member not found in this flat');
+
+      await conn.query('UPDATE users SET password_hash = ? WHERE id = ?', [
+        await bcrypt.hash(newPassword, 10),
+        userId
+      ]);
+
+      // Recorded because it is a change to how someone gets into the flat's
+      // money, and the flat should be able to see that it happened.
+      await writeGroupAudit(conn, {
+        groupId: req.group.id,
+        action: 'password_reset',
+        detail: `${rows[0].name}'s password was reset by the Admin`,
+        subjectId: userId,
+        actorId: req.user.id
+      });
+
+      return rows[0].name;
+    });
+
+    res.json({ ok: true, name });
+  })
+);
+
 /** PATCH /api/groups/:groupId/members/:userId  (Admin) — activate/deactivate */
 router.patch(
   '/:groupId/members/:userId',
