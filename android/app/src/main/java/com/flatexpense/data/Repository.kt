@@ -44,8 +44,16 @@ class Repository(context: Context) {
         if (existing != null && cachedBase == base && cachedToken == token) return existing
 
         val client = OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            // Generous on purpose. A free hosting tier stops the service after
+            // a quiet spell and takes the better part of a minute to wake on
+            // the next request, so the first person to open the app each
+            // morning pays that wait. At 30 seconds they instead saw "cannot
+            // reach the server" on a server that was simply still getting up,
+            // and the obvious reading of that message — wrong address, no
+            // internet — sends people looking in entirely the wrong place.
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(90, TimeUnit.SECONDS)
+            .callTimeout(120, TimeUnit.SECONDS)
             .addInterceptor(Interceptor { chain ->
                 val request = chain.request().newBuilder().apply {
                     if (!token.isNullOrBlank()) addHeader("Authorization", "Bearer $token")
@@ -87,8 +95,23 @@ class Repository(context: Context) {
         }
         Result.failure(ApiException(e.readMessage()))
     } catch (e: IOException) {
+        // A timeout and a wrong address both arrive here, and they need
+        // different things done about them: one wants patience, the other
+        // wants the address corrected. Telling them apart saves someone
+        // retyping a perfectly good address at a server that was only asleep.
+        val timedOut = e is java.net.SocketTimeoutException ||
+            e is java.io.InterruptedIOException
         Result.failure(
-            ApiException("Cannot reach the server. Check the API address in Profile and that the API is running.")
+            ApiException(
+                if (timedOut) {
+                    "The server is taking a long time to answer. It may be waking " +
+                        "up, which can take up to a minute after a quiet spell — " +
+                        "wait a moment and try again."
+                } else {
+                    "Cannot reach the server. Check the API address under Server " +
+                        "settings, and that you have internet."
+                }
+            )
         )
     } catch (e: Exception) {
         Result.failure(ApiException(e.message ?: "Something went wrong"))
