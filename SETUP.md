@@ -204,7 +204,7 @@ Set `BACKUP_COPY_TO` in `.env` to a synced folder and every dump is copied
 there automatically:
 
 ```
-BACKUP_COPY_TO=C:/Users/you/OneDrive/FlatExpenseBackups
+BACKUP_COPY_TO=G:/My Drive/FlatExpenseBackups
 ```
 
 OneDrive, Google Drive or Dropbox all work — the sync client does the
