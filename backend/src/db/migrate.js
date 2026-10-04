@@ -52,7 +52,10 @@ async function applyColumnAdditions(connection, database) {
     );
     if (rows.length === 0) {
       console.log(`  adding ${table}.${column}`);
-      await connection.query(`USE \`${database}\`; ${ddl}`);
+      // The database is already selected by the caller; re-selecting it here
+      // is what hid the real problem last time, since the USE succeeded
+      // against one database while the check had looked at another.
+      await connection.query(ddl);
     }
   }
 }
@@ -76,7 +79,22 @@ async function main() {
   });
 
   try {
-    console.log(`Applying ${path.relative(process.cwd(), SCHEMA_PATH)} ...`);
+    console.log(`Applying ${path.relative(process.cwd(), SCHEMA_PATH)} into "${database}" ...`);
+
+    // Create it if we are allowed to. A managed database already exists and
+    // the account often cannot create another, which is fine — that is the
+    // normal hosted case, not an error.
+    try {
+      await connection.query(
+        `CREATE DATABASE IF NOT EXISTS \`${database}\`
+           CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci`
+      );
+    } catch (err) {
+      if (err.code !== 'ER_DBACCESS_DENIED_ERROR') throw err;
+      console.log(`  (cannot create databases here; using the existing "${database}")`);
+    }
+
+    await connection.query(`USE \`${database}\``);
     await connection.query(schema);
     await applyColumnAdditions(connection, database);
 

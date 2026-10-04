@@ -4,10 +4,16 @@
 -- Money is stored as DECIMAL(12,2), never FLOAT: these are rupee amounts that
 -- get summed into monthly totals, and binary floating point would drift.
 
-CREATE DATABASE IF NOT EXISTS flat_expense_manager
-  CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-
-USE flat_expense_manager;
+-- The database itself is created and selected by migrate.js, using DB_NAME.
+--
+-- This file used to open with CREATE DATABASE flat_expense_manager and USE,
+-- which meant the name here silently won over the configured one: pointed at
+-- a managed database called something else, every table landed in a database
+-- nobody had asked for, and the app then found none of them. A host that does
+-- not allow creating databases at all would have failed outright.
+--
+-- So: no database statements here. Run it with `npm run migrate`, which puts
+-- the tables wherever DB_NAME says.
 
 -- ---------------------------------------------------------------------------
 -- users
