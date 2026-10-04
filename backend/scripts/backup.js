@@ -80,6 +80,11 @@ async function main() {
     // user deliberately does not have. The data dump does not need it, so
     // skipping it avoids a warning on every single run.
     '--no-tablespaces',
+    // A hosted MySQL runs with GTIDs on, and a dump taken from one carries
+    // their IDs. Restoring that into a different server is refused unless the
+    // target is empty of them — which is exactly the moment a backup has to
+    // work, so the IDs are left out and the dump stays restorable anywhere.
+    '--set-gtid-purged=OFF',
     database
   ];
 
